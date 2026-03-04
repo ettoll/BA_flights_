@@ -1,6 +1,5 @@
 ---
-title: "MOT143A Business Analytics: Group Report"
-subtitle: "Airline Delay and Cancellation (2009–2018)"
+title: "MOT143A: Business Analytics group 18"
 author: "Hidde Segers and Lotte Feilzer"
 date: "2026-03-04"
 output:
@@ -18,9 +17,20 @@ editor_options:
 
 ## 1.1 Business problem
 
-**Context.** Airline operations for domestic flights in the US must plan
-resources (gates, crew, customer service capacity).\
-**Problem.** Delays and cancellations create high costs (crew overtime,
+**Context:** Airlines running domestic flights in the United States
+(U.S.) must manage resources constantly such as gates, crew members,
+ground handling staff, and customer service capacity. These decisions
+have to be made quickly and often with limited certainty.
+
+Flight delays and cancellations can cause a lot of trouble for those who
+are trying to get on time. When things go wrong, airlines have to pay
+for: crew overtime, gate conflicts, aircraft re-positioning,
+compensation, re-booking logistics, and re-putational damage. At the
+same time, customer satisfaction declines, which affects their name and
+in the long-term their revenue.
+
+\
+**Problem:** Delays and cancellations create high costs (crew overtime,
 gate conflicts, rebooking) and reduce customer satisfaction.
 
 **Business question.**\
@@ -32,28 +42,64 @@ identify *high risk* flights and allocate resources proactively.
 
 ## 1.2 Analytics task
 
-We consider two possible targets:
+This analysis is focused on the perspective of the airline operations
+control and the airport station management to identify high risk
+flights. This should support the workers with allocation of staff, gates
+and premature consumer communication. The model will be used for
+pre-departure planning setting and will be based on the historical
+operational data of US domestic flights. The business problem will be
+translated to an analytic task by approaching it as a predictive
+risk-scoring problem. Three possible targets were considered:
 
--   **Classification A (delay):** `ARR_DELAY >= 15` minutes\
-    (only for flights that are not cancelled and not diverted).
--   **Classification B (cancellation):** `CANCELLED == 1`.
+-   **Classification A (delay):**
 
-**Primary task (choose and write):** \_\_\_\
-**Why:** \_\_\_ (business impact / class imbalance / interpretability)
+    **Target:** `IS_DELAYED_15 = 1` als `ARR_DELAY >= 15`, anders 0.
 
-## 1.3 Success criteria (metrics & business trade-offs)
+    Here it is analysed whether or not a flight will be significantly
+    delayed or not (this is for flights that are neither diverted or
+    delayed).
 
--   **Model metrics:** confusion matrix + accuracy + precision/recall
-    for the positive class.
+-   **Classification B (cancellation):**
+
+    **Target:** `CANCELLED == 1`
+
+    Here it is analysed whether or not a flight will be cancelled.
+
+-   **Regression:**
+
+    **Target:** `ARR_DELAY`
+
+    Here it is analysed how much too late a flight will likely be in
+    minutes.
+
+The primary task chosen is classification A, this is because it will be
+directly usable to relocate resources if needed and where focus in
+logistics needs to focused. It is important to press that the model
+can't reason and does not rely on causality. It also will not be able to
+guarantee outcomes. It will estimate the risk for significant delay and
+consequently improve and support operational actions. Classification for
+cancellation will be harder because of the rarity of this event. The
+regression of the delay is also hard to predict and the type of delay
+can but does not also translate to how much delay there will be. \
+
+## 1.3 Success criteria
+
+We consider the success criteria for this report in two perspectives.
+Firstly, model criteria that will be need to be met to answer our
+business question. Secondly, the business criteria that will ensure
+positive effects of the model in practice.
+
+-   **Model:** confusion matrix + accuracy + precision/recall for the
+    positive class.
 -   **Business trade-off:**
     -   false negatives (miss real delays) → too few buffers, higher
-        customer impact\
+        customer impact
     -   false positives (predict delay but on-time) → over-allocation,
         higher costs
 
-**Which error is more costly?** \_\_\_
+**Which error is more costly?**
 
-# 2. Setup (same style as workbooks)
+# 2. Setup
 
 ```{r setup}
 # CRAN mirror
@@ -61,10 +107,7 @@ local({r <- getOption("repos")
 r["CRAN"] <- "https://cran.rstudio.com/"
 options(repos = r)})
 
-packages <- c(
-  # EDA + modelling (workbooks)
-  "ggplot2", "Hmisc", "rsample", "gmodels", "C50", "randomForest",
-  # dimension reduction & clustering workbook
+packages <- c("ggplot2", "Hmisc", "rsample", "gmodels", "C50", "randomForest",
   "factoextra", "lattice", "reshape2"
 )
 
@@ -76,9 +119,6 @@ for (i in packages) {
 }
 
 set.seed(46748717)
-
-# folders
-if (!dir.exists("output")) dir.create("output")
 ```
 
 # 3. Data loading (use **one year**)
@@ -92,16 +132,8 @@ Put **one** year CSV in `data/`, for example: `data/2009.csv`.
 
 ```{r data_files}
 data_dir <- "data"
-YEAR <- 2009                 # TODO: change to 2017, 2018, etc.
+YEAR <- 2009
 csv_path <- file.path(data_dir, paste0(YEAR, ".csv"))
-
-if (!file.exists(csv_path)) {
-  stop(paste0(
-    "File not found: ", csv_path, "\n",
-    "Download it from Kaggle and place it in the data/ folder."
-  ))
-}
-
 csv_path
 ```
 
@@ -111,14 +143,7 @@ These CSVs are huge. For development we can read only the first *N*
 rows. Set `N_READ <- -1` to read the full file (may take long).
 
 ```{r read_data}
-N_READ <- 300000   # TODO: set to -1 for full data
-
-if (N_READ > 0) {
-  flights <- read.csv(csv_path, stringsAsFactors = FALSE, nrows = N_READ)
-} else {
-  flights <- read.csv(csv_path, stringsAsFactors = FALSE)
-}
-
+N_READ <- 300000
 dim(flights)
 names(flights)[1:20]
 ```
