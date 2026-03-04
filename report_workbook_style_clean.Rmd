@@ -18,7 +18,7 @@ editor_options:
 ## 1.1 Business problem
 
 **Context:** Airlines running domestic flights in the United States
-(U.S.) must manage resources constantly such as gates, crew members,
+(U.S.) must manage constantly resources such as gates, crew members,
 ground handling staff, and customer service capacity. These decisions
 have to be made quickly and often with limited certainty.
 
@@ -29,16 +29,37 @@ compensation, re-booking logistics, and re-putational damage. At the
 same time, customer satisfaction declines, which affects their name and
 in the long-term their revenue.
 
-\
-**Problem:** Delays and cancellations create high costs (crew overtime,
-gate conflicts, rebooking) and reduce customer satisfaction.
+**Problem:** Delays and cancellations are really expensive for airlines
+and can be frustrating for passengers. A single delay can create high
+costs for crew overtime, gate conflicts, re-booking workloads. Because
+flights are connected in a daily schedule, one delay can also cause
+follow-on delays later in the network. This increases operational costs
+and directly reduces customer satisfaction.
 
-**Business question.**\
-*How can we predict the risk of flight delay/cancellation
-**pre-departure** to optimize the use of operational resources?*
+The practical challenge is that a lot of operational decisions must be
+made before the flights departures. At that time it is still not clear
+whether the flight is running on time or not. If the airline can figure
+out flights that are likely to be delayed early, it can allocate
+resources more active (e.g., assign standby crew, prepare customer
+service capacity or adjust gate plans) and reduce the impact when such
+delays occurs.
 
-The model will not state the “truth”; it is a decision-support tool to
-identify *high risk* flights and allocate resources proactively.
+This leads to our business question:
+
+**Business question:** How can we estimate the probability that a
+scheduled flight will be delayed (e.g. more than 15 min) before
+departure?
+
+The goal is not to "predict the truth" perfectly, but to provide a risk
+signal that helps operations teams prioritize attention and resources
+towards flights with the highest expected delay risk. From an
+organizational perspective, the insights are meant for operations
+control centers, network planners and day-of-operations managers. The
+model would be used in real-time operational setting, where planners
+monitor flights and allocate resources (that are most of the time
+limited). In this context, the prediction functions as a
+decision-support tool that can help prioritize attention and
+interventions for flights with the highest risk of delay.
 
 ## 1.2 Analytics task
 
@@ -80,7 +101,7 @@ guarantee outcomes. It will estimate the risk for significant delay and
 consequently improve and support operational actions. Classification for
 cancellation will be harder because of the rarity of this event. The
 regression of the delay is also hard to predict and the type of delay
-can but does not also translate to how much delay there will be. \
+can but does not also translate to how much delay there will be.
 
 ## 1.3 Success criteria
 
@@ -89,17 +110,24 @@ Firstly, model criteria that will be need to be met to answer our
 business question. Secondly, the business criteria that will ensure
 positive effects of the model in practice.
 
--   **Model:** confusion matrix + accuracy + precision/recall for the
-    positive class.
--   **Business trade-off:**
-    -   false negatives (miss real delays) → too few buffers, higher
-        customer impact
-    -   false positives (predict delay but on-time) → over-allocation,
-        higher costs
+From an operational point of view, missing a real delay is usually worse
+than raising a false alarm. If the model says a flight will be on time
+but it is actually delayed, the airline is unprepared. This can quickly
+lead to crew problems, gate conflicts, and unhappy passengers.
 
-**Which error is more costly?**
+If the model predicts a delay that does not happen, it may lead to some
+extra costs because resources were allocated unnecessarily. However,
+this is less harmful than being unprepared for a real delay.
+
+For this reason, we focus on high recall for the delayed flight s. We
+want the model to catch as many real delays as possible, even if that
+means accepting some false alarms. At the same time, we monitor
+precision to make sure we do not allocate too many unnecessary
+resources.
 
 # 2. Setup
+
+Here all packages are downloaded to make the code reproducible.
 
 ```{r setup}
 # CRAN mirror
@@ -121,34 +149,28 @@ for (i in packages) {
 set.seed(46748717)
 ```
 
-# 3. Data loading (use **one year**)
+# 3. Data loading 
 
 ## 3.1 Data in `data/` folder
 
-Put **one** year CSV in `data/`, for example: `data/2009.csv`.
-
-> We do **not** push the big CSVs to GitHub (GitHub limit 100MB).\
-> Each team member downloads the CSV locally and places it in `data/`.
+Here we read
 
 ```{r data_files}
 data_dir <- "data"
-YEAR <- 2009
+YEAR <- 2018
 csv_path <- file.path(data_dir, paste0(YEAR, ".csv"))
-csv_path
+flights <- read.csv(csv_path, stringsAsFactors = FALSE, nrows = N_READ)
 ```
 
-## 3.2 Read data (lightweight development option)
-
-These CSVs are huge. For development we can read only the first *N*
-rows. Set `N_READ <- -1` to read the full file (may take long).
+## 3.2 Read data
 
 ```{r read_data}
-N_READ <- 300000
+N_READ <- -1
 dim(flights)
-names(flights)[1:20]
+names(flights)
 ```
 
-# 4. Data exploration & preparation (Workbook: EDA/Prep/Visualization)
+# 4. Data exploration & preparation
 
 ## 4.1 Reality check
 
