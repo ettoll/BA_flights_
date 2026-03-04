@@ -1,0 +1,457 @@
+---
+title: "MOT143A Business Analytics: Group Report"
+subtitle: "Airline Delay and Cancellation (2009–2018)"
+author: "Hidde Segers and Lotte Feilzer"
+date: "2026-03-04"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    df_print: paged
+editor_options:
+  markdown:
+    wrap: 72
+---
+
+# 1. Business context and analytics task
+
+## 1.1 Business problem
+
+**Context.** Airline operations for domestic flights in the US must plan
+resources (gates, crew, customer service capacity).\
+**Problem.** Delays and cancellations create high costs (crew overtime,
+gate conflicts, rebooking) and reduce customer satisfaction.
+
+**Business question.**\
+*How can we predict the risk of flight delay/cancellation
+**pre-departure** to optimize the use of operational resources?*
+
+The model will not state the “truth”; it is a decision-support tool to
+identify *high risk* flights and allocate resources proactively.
+
+## 1.2 Analytics task
+
+We consider two possible targets:
+
+-   **Classification A (delay):** `ARR_DELAY >= 15` minutes\
+    (only for flights that are not cancelled and not diverted).
+-   **Classification B (cancellation):** `CANCELLED == 1`.
+
+**Primary task (choose and write):** \_\_\_\
+**Why:** \_\_\_ (business impact / class imbalance / interpretability)
+
+## 1.3 Success criteria (metrics & business trade-offs)
+
+-   **Model metrics:** confusion matrix + accuracy + precision/recall
+    for the positive class.
+-   **Business trade-off:**
+    -   false negatives (miss real delays) → too few buffers, higher
+        customer impact\
+    -   false positives (predict delay but on-time) → over-allocation,
+        higher costs
+
+**Which error is more costly?** \_\_\_
+
+# 2. Setup (same style as workbooks)
+
+```{r setup}
+# CRAN mirror
+local({r <- getOption("repos")
+r["CRAN"] <- "https://cran.rstudio.com/"
+options(repos = r)})
+
+packages <- c(
+  # EDA + modelling (workbooks)
+  "ggplot2", "Hmisc", "rsample", "gmodels", "C50", "randomForest",
+  # dimension reduction & clustering workbook
+  "factoextra", "lattice", "reshape2"
+)
+
+for (i in packages) {
+  if (!require(i, character.only = TRUE)) {
+    install.packages(i, dependencies = TRUE)
+    library(i, character.only = TRUE)
+  }
+}
+
+set.seed(46748717)
+
+# folders
+if (!dir.exists("output")) dir.create("output")
+```
+
+# 3. Data loading (use **one year**)
+
+## 3.1 Data in `data/` folder
+
+Put **one** year CSV in `data/`, for example: `data/2009.csv`.
+
+> We do **not** push the big CSVs to GitHub (GitHub limit 100MB).\
+> Each team member downloads the CSV locally and places it in `data/`.
+
+```{r data_files}
+data_dir <- "data"
+YEAR <- 2009                 # TODO: change to 2017, 2018, etc.
+csv_path <- file.path(data_dir, paste0(YEAR, ".csv"))
+
+if (!file.exists(csv_path)) {
+  stop(paste0(
+    "File not found: ", csv_path, "\n",
+    "Download it from Kaggle and place it in the data/ folder."
+  ))
+}
+
+csv_path
+```
+
+## 3.2 Read data (lightweight development option)
+
+These CSVs are huge. For development we can read only the first *N*
+rows. Set `N_READ <- -1` to read the full file (may take long).
+
+```{r read_data}
+N_READ <- 300000   # TODO: set to -1 for full data
+
+if (N_READ > 0) {
+  flights <- read.csv(csv_path, stringsAsFactors = FALSE, nrows = N_READ)
+} else {
+  flights <- read.csv(csv_path, stringsAsFactors = FALSE)
+}
+
+dim(flights)
+names(flights)[1:20]
+```
+
+# 4. Data exploration & preparation (Workbook: EDA/Prep/Visualization)
+
+## 4.1 Reality check
+
+```{r explore_basic}
+str(flights)
+summary(flights)
+```
+
+## 4.2 Missing values overview
+
+```{r missingness}
+na_count <- sapply(flights, function(x) sum(is.na(x)))
+na_pct   <- round(100 * na_count / nrow(flights), 2)
+
+na_table <- data.frame(
+  variable = names(flights),
+  na_count = as.integer(na_count),
+  na_pct = na_pct
+)
+
+na_table <- na_table[order(-na_table$na_pct), ]
+head(na_table, 15)
+```
+
+## 4.3 Minimal cleaning + datatypes
+
+```{r clean_types}
+# Drop unnamed columns if present
+drop_cols <- grep("^Unnamed", names(flights), value = TRUE)
+if (length(drop_cols) > 0) flights[drop_cols] <- NULL
+
+# Parse FL_DATE if present
+if ("FL_DATE" %in% names(flights)) flights$FL_DATE <- as.Date(flights$FL_DATE)
+
+# Ensure integers
+for (cname in c("CANCELLED","DIVERTED")) {
+  if (cname %in% names(flights)) flights[[cname]] <- as.integer(flights[[cname]])
+}
+```
+
+## 4.4 Feature engineering (pre-departure features)
+
+```{r feature_engineering}
+hhmm_to_minutes <- function(x) {
+  x <- suppressWarnings(as.integer(x))
+  hh <- x %/% 100
+  mm <- x %% 100
+  out <- hh*60 + mm
+  out[is.na(x) | mm > 59 | hh < 0 | hh > 29] <- NA
+  out
+}
+
+if ("FL_DATE" %in% names(flights)) {
+  flights$MONTH <- as.integer(format(flights$FL_DATE, "%m"))
+  flights$WEEKDAY <- weekdays(flights$FL_DATE)
+}
+
+if ("CRS_DEP_TIME" %in% names(flights)) {
+  flights$CRS_DEP_MIN <- hhmm_to_minutes(flights$CRS_DEP_TIME)
+  flights$CRS_DEP_HOUR <- floor(flights$CRS_DEP_MIN / 60)
+}
+
+if ("CRS_ARR_TIME" %in% names(flights)) {
+  flights$CRS_ARR_MIN <- hhmm_to_minutes(flights$CRS_ARR_TIME)
+  flights$CRS_ARR_HOUR <- floor(flights$CRS_ARR_MIN / 60)
+}
+
+if (all(c("ORIGIN","DEST") %in% names(flights))) {
+  flights$ROUTE <- paste(flights$ORIGIN, flights$DEST, sep = "-")
+}
+```
+
+## 4.5 Target definition (classification)
+
+> **No leakage in modelling:** we will use only pre-departure features
+> for the models. Targets come from outcome columns.
+
+```{r targets}
+# Delay target: ARR_DELAY >= 15 (only not-cancelled and not-diverted)
+if (all(c("ARR_DELAY","CANCELLED","DIVERTED") %in% names(flights))) {
+  flights$IS_DELAYED_15 <- ifelse(
+    flights$CANCELLED == 0 & flights$DIVERTED == 0 & !is.na(flights$ARR_DELAY),
+    as.integer(flights$ARR_DELAY >= 15),
+    NA
+  )
+}
+
+# Cancellation target
+if ("CANCELLED" %in% names(flights)) {
+  flights$IS_CANCELLED <- flights$CANCELLED
+}
+
+table(flights$IS_DELAYED_15, useNA="ifany")
+table(flights$IS_CANCELLED, useNA="ifany")
+```
+
+# 5. Exploratory visualisation (ggplot2)
+
+```{r eda_plots}
+if (all(c("MONTH","IS_DELAYED_15") %in% names(flights))) {
+  dfm <- aggregate(IS_DELAYED_15 ~ MONTH, flights, function(x) mean(x, na.rm = TRUE))
+  ggplot(dfm, aes(x = MONTH, y = IS_DELAYED_15)) +
+    geom_line() + geom_point() +
+    scale_x_continuous(breaks = 1:12) +
+    ylab("Delay rate (>=15 min)") + ggtitle("Delay rate per month")
+}
+```
+
+```{r eda_airline_airport}
+# Filter to flights where delay target is defined
+if (all(c("IS_DELAYED_15","OP_CARRIER","ORIGIN") %in% names(flights))) {
+  flights_clean <- flights[!is.na(flights$IS_DELAYED_15), ]
+
+  airline_summary <- aggregate(IS_DELAYED_15 ~ OP_CARRIER, flights_clean,
+                               function(x) mean(x, na.rm = TRUE))
+  airline_summary <- airline_summary[order(-airline_summary$IS_DELAYED_15), ]
+
+  ggplot(airline_summary[1:10, ],
+         aes(x = reorder(OP_CARRIER, IS_DELAYED_15), y = IS_DELAYED_15)) +
+    geom_col() +
+    coord_flip() +
+    labs(title = "Delay rate (>=15 min) per airline (top 10)",
+         x = "Airline", y = "Delay rate")
+}
+```
+
+**Interpretation (write):** - Seasonality?\
+- Which carriers/airports stand out?\
+- Class imbalance?
+
+# 6. Dimension reduction & clustering (Workbook: Dimension reduction and clustering)
+
+We cluster **airports** based on *pre-departure* aggregated profiles
+(interpretability).
+
+```{r airport_profiles}
+needed <- c("ORIGIN","IS_DELAYED_15","IS_CANCELLED","DISTANCE","CRS_ELAPSED_TIME")
+needed <- needed[needed %in% names(flights)]
+
+if (all(c("ORIGIN","IS_DELAYED_15") %in% names(flights))) {
+  base_df <- flights[!is.na(flights$IS_DELAYED_15), ]
+
+  # aggregate per ORIGIN
+  ap <- aggregate(
+    cbind(IS_DELAYED_15, IS_CANCELLED, DISTANCE, CRS_ELAPSED_TIME) ~ ORIGIN,
+    data = base_df,
+    FUN = function(x) mean(x, na.rm = TRUE)
+  )
+
+  # add volume
+  ap_n <- aggregate(IS_DELAYED_15 ~ ORIGIN, data = base_df, FUN = length)
+  names(ap_n)[2] <- "n"
+  ap <- merge(ap, ap_n, by = "ORIGIN")
+
+  names(ap) <- c("ORIGIN","delay_rate","cancel_rate","avg_distance","avg_sched_time","n")
+
+  # scale numeric columns
+  ap_scaled <- scale(ap[, c("delay_rate","cancel_rate","avg_distance","avg_sched_time","n")])
+
+  set.seed(1)
+  km <- kmeans(ap_scaled, centers = 4, nstart = 20)
+  ap$cluster <- factor(km$cluster)
+
+  head(ap)
+}
+```
+
+```{r cluster_viz}
+if (exists("ap")) {
+  ggplot(ap, aes(x = delay_rate, y = cancel_rate, color = cluster)) +
+    geom_point(alpha = 0.8) +
+    ggtitle("Airport clusters (delay & cancellation rates)") +
+    xlab("Delay rate (>=15 min)") + ylab("Cancellation rate")
+}
+```
+
+## 6.1 PCA
+
+```{r pca}
+if (exists("ap_scaled")) {
+  pca_res <- prcomp(ap_scaled, center = TRUE, scale. = TRUE)
+  summary(pca_res)
+
+  factoextra::fviz_eig(pca_res, addlabels = TRUE)
+  factoextra::fviz_pca_biplot(pca_res, repel = TRUE)
+}
+```
+
+## 6.2 Correlation heatmap (replace GGally with reshape2 + ggplot2)
+
+```{r corr_heatmap}
+if (exists("ap")) {
+  num_df <- ap[, c("delay_rate","cancel_rate","avg_distance","avg_sched_time","n")]
+  cm <- cor(num_df, use = "complete.obs")
+  cm_melt <- reshape2::melt(cm)
+
+  ggplot(cm_melt, aes(x = Var1, y = Var2, fill = value)) +
+    geom_tile() +
+    labs(title = "Correlation matrix (airport profile features)",
+         x = "", y = "", fill = "cor") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+}
+```
+
+**Interpretation (write):** - What do clusters represent?\
+- Do PCA axes have meaning (loadings)?\
+- Would you use a cluster label as a feature (yes/no and why)?
+
+# 7. Modelling (Workbook: Classification)
+
+We fit two models (C5.0 tree + Random Forest) using **pre-departure**
+features only.
+
+```{r modelling_data}
+TARGET <- "IS_DELAYED_15"  # TODO: or "IS_CANCELLED"
+
+candidate_features <- c(
+  "OP_CARRIER","ORIGIN","DEST",
+  "MONTH","WEEKDAY","CRS_DEP_HOUR",
+  "CRS_ELAPSED_TIME","DISTANCE"
+)
+features <- intersect(candidate_features, names(flights))
+
+stopifnot(TARGET %in% names(flights))
+stopifnot(length(features) >= 3)
+
+model_df <- flights[, c(TARGET, features)]
+model_df <- model_df[complete.cases(model_df), ]
+
+# collapse high-cardinality airports to top-N
+topN_collapse <- function(x, N = 40) {
+  tb <- sort(table(x), decreasing = TRUE)
+  keep <- names(tb)[1:min(N, length(tb))]
+  out <- ifelse(x %in% keep, x, "OTHER")
+  factor(out)
+}
+
+if ("ORIGIN" %in% names(model_df)) model_df$ORIGIN <- topN_collapse(model_df$ORIGIN, 40)
+if ("DEST" %in% names(model_df)) model_df$DEST <- topN_collapse(model_df$DEST, 40)
+if ("OP_CARRIER" %in% names(model_df)) model_df$OP_CARRIER <- factor(model_df$OP_CARRIER)
+if ("WEEKDAY" %in% names(model_df)) model_df$WEEKDAY <- factor(model_df$WEEKDAY)
+
+split <- rsample::initial_split(model_df, prop = 0.7)
+train <- rsample::training(split)
+test  <- rsample::testing(split)
+
+dim(train); dim(test)
+table(train[[TARGET]])
+```
+
+## 7.1 Baseline
+
+```{r baseline}
+y_true <- test[[TARGET]]
+y_pred0 <- rep(0, length(y_true))
+
+gmodels::CrossTable(y_true, y_pred0,
+                    prop.chisq = FALSE, prop.t = FALSE, prop.r = FALSE,
+                    dnn = c("Actual", "Predicted (always 0)"))
+```
+
+## 7.2 Model 1 — C5.0 decision tree
+
+```{r c50}
+form <- as.formula(paste(TARGET, "~", paste(features, collapse = " + ")))
+
+train_c50 <- train
+test_c50 <- test
+train_c50[[TARGET]] <- factor(train_c50[[TARGET]])
+test_c50[[TARGET]]  <- factor(test_c50[[TARGET]])
+
+tree <- C50::C5.0(form, data = train_c50)
+tree
+
+pred_tree <- predict(tree, newdata = test_c50)
+gmodels::CrossTable(test_c50[[TARGET]], pred_tree,
+                    prop.chisq = FALSE, prop.t = FALSE, prop.r = FALSE,
+                    dnn = c("Actual", "Predicted (C5.0)"))
+```
+
+## 7.3 Model 2 — Random Forest
+
+```{r rf}
+train_rf <- train
+test_rf <- test
+train_rf[[TARGET]] <- factor(train_rf[[TARGET]])
+test_rf[[TARGET]]  <- factor(test_rf[[TARGET]])
+
+rf <- randomForest::randomForest(form, data = train_rf, ntree = 200)
+rf
+
+pred_rf <- predict(rf, newdata = test_rf)
+gmodels::CrossTable(test_rf[[TARGET]], pred_rf,
+                    prop.chisq = FALSE, prop.t = FALSE, prop.r = FALSE,
+                    dnn = c("Actual", "Predicted (RF)"))
+
+randomForest::varImpPlot(rf)
+```
+
+## 7.4 Comparison (write)
+
+Compare: - performance (confusion matrices) - interpretability (tree
+rules vs RF importance) - robustness / overfitting risk - operational
+usability (how would you use scores in planning?)
+
+**We recommend model \_\_\_ because \_\_\_ .**
+
+# 8. Conclusions & recommendations
+
+## 8.1 Operational recommendations (write)
+
+Examples: - “High-risk flight list” per day/airport → allocate buffers
+(gate agents/crew) - proactive passenger communication above a risk
+threshold - airport/carrier monitoring dashboard (month/weekday/hour)
+
+## 8.2 Limitations & next steps (write)
+
+Limitations: - no weather / ATC constraints - concept drift across years
+(policies, demand, post-COVID changes) - class imbalance (especially
+cancellations)
+
+Next steps (conceptual, workbooks 6–8): - when would representation
+learning add value and what data is needed? - why text analytics is not
+suitable here (no text fields) - how RL could apply if reformulated as
+sequential staffing decisions
+
+# 9. Reproducibility
+
+```{r sessioninfo}
+sessionInfo()
+```
