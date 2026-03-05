@@ -302,7 +302,7 @@ na_table <- na_table[order(-na_table$na_pct), ]
 na_table
 ```
 
-First we check whether the "na"s occurring in the delay rows are the
+First we check whether the "NA"s occurring in the delay rows are the
 same. The cell below tells us this is the case. This shows that these
 `DELAY` variables are jointly observed or missing, this indicates that
 the this data is probably complete for these rows. These rows are filled
