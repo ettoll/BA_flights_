@@ -1,5 +1,5 @@
 ---
-title: "MOT143A: Business Analytics group 18"
+title: "MOT143A: Business Analytics group 20"
 author: "Hidde Segers and Lotte Feilzer"
 date: "2026-03-04"
 output:
@@ -153,7 +153,10 @@ set.seed(46748717)
 
 ## 3.1 Data in `data/` folder
 
-Here we read
+Here we read our data. In the code it is easy to change the year of data
+we want to see, just change the variable `YEAR`. Because the data_files
+are quite big we added the possibility to print only a specific amount
+of rows as given in `nrows` a value of `-1` will give all rows.
 
 ```{r data_files}
 data_dir <- "data"
@@ -164,136 +167,75 @@ flights <- read.csv(csv_path, stringsAsFactors = FALSE, nrows = N_READ)
 
 ## 3.2 Read data
 
+Now we read our actual data and print the dimensions and columns names
+to get a first clue of what kind of data were dealing with.
+
 ```{r read_data}
 N_READ <- -1
 dim(flights)
 names(flights)
 ```
 
-```{r}
-library(tibble)
+As seen the datafile contains:
 
-variable_overview <- tibble(
-  variable = c(
-    "FL_DATE",
-    "OP_CARRIER",
-    "OP_CARRIER_FL_NUM",
-    "ORIGIN",
-    "DEST",
-    "CRS_DEP_TIME",
-    "DEP_TIME",
-    "DEP_DELAY",
-    "TAXI_OUT",
-    "WHEELS_OFF",
-    "CANCELLED",
-    "CANCELLATION_CODE",
-    "DIVERTED",
-    "DISTANCE",
-    "CRS_ARR_TIME",
-    "ARR_TIME",
-    "ARR_DELAY",
-    "AIR_TIME",
-    "ACTUAL_ELAPSED_TIME",
-    "CRS_ELAPSED_TIME"
-  ),
-  
-  description = c(
-    "Flight date",
-    "Operating airline carrier",
-    "Flight number within carrier",
-    "Origin airport",
-    "Destination airport",
-    "Scheduled departure time (HHMM)",
-    "Actual departure time",
-    "Departure delay in minutes",
-    "Taxi-out time (minutes)",
-    "Time wheels left ground",
-    "Cancellation indicator (0/1)",
-    "Reason for cancellation",
-    "Diversion indicator (0/1)",
-    "Flight distance (miles)",
-    "Scheduled arrival time (HHMM)",
-    "Actual arrival time",
-    "Arrival delay (minutes)",
-    "Airborne time (minutes)",
-    "Total actual flight time (minutes)",
-    "Scheduled flight time (minutes)"
-  ),
-  
-  data_type = c(
-    "Date",
-    "Categorical (nominal)",
-    "Identifier",
-    "Categorical (nominal)",
-    "Categorical (nominal)",
-    "Time (scheduled)",
-    "Time (actual)",
-    "Numeric (continuous, target)",
-    "Numeric (continuous)",
-    "Time (actual)",
-    "Binary (0/1)",
-    "Categorical (nominal)",
-    "Binary (0/1)",
-    "Numeric (continuous)",
-    "Time (scheduled)",
-    "Time (actual)",
-    "Numeric (continuous)",
-    "Numeric (continuous)",
-    "Numeric (continuous)",
-    "Numeric (continuous)"
-  ),
-  
-  role = c(
-    "Predictor (temporal)",
-    "Predictor",
-    "Excluded (identifier)",
-    "Predictor",
-    "Predictor",
-    "Predictor (time-of-day)",
-    "Excluded (post-departure)",
-    "Target variable",
-    "Excluded (post-departure process)",
-    "Excluded (post-departure)",
-    "Predictor (operational state)",
-    "Excluded (post-event info)",
-    "Predictor (operational state)",
-    "Predictor",
-    "Predictor (time-of-day)",
-    "Excluded (post-arrival)",
-    "Excluded (post-arrival outcome)",
-    "Excluded (post-flight)",
-    "Excluded (post-flight)",
-    "Predictor"
-  )
-)
+-   7,213,446 observations
 
-variable_overview
-```
+-   28 variables
+
+We see that each observation represents one commercial flight in 2018.
+The variables are as follows and categorized in definitions that can be
+used to refer to groups of variables further in the report:
+
+-   **Flight identifiers:** FL_DATE, OP_CARRIER, OP_CARRIER_FL_NUM
+
+-   **Route information:** ORIGIN, DEST
+
+-   **Scheduled times:** CRS_DEP_TIME, CRS_ARR_TIME
+
+-   **Actual flight performance:** DEP_TIME, ARR_TIME, DEP_DELAY,
+    ARR_DELAY
+
+-   **Operational metrics:** TAXI_OUT, TAXI_IN, AIR_TIME
+
+-   **Delay causes:** CARRIER_DELAY, WEATHER_DELAY, NAS_DELAY,
+    SECURITY_DELAY, LATE_AIRCRAFT_DELAY
+
+-   **Flight status indicators:** CANCELLED, DIVERTED
 
 # 4. Data exploration & preparation
 
 ## 4.1 Data summary
 
-Here we show a small summary of the data.
+Here we show a small summary of the data. The following things are
+noticeable. Columns in this datafile that contain dates are characters
+preferably we change this later to datetimes. It is also remarkable that
+the times are given in military time but as integers, this will make it
+hard to calculate certain metrics inveolving time such as "time passed"
+therefor we will preferably also change these datatypes later on to
+datetimes. For metrics such as `TAXI_OUT` and `DEP_DELAY` the integers
+are suitable because it represents the amount of minutes passed. We see
+that for the `DIVERTED` and `CANCELLED` columns `0` and `1` are used
+instead of Booleans to respresent `FALSE` and `TRUE` respectively, this
+is also workable if remarked. Let's further explore the data.
 
 ```{r explore_basic}
 str(flights)
-summary(flights)
 ```
 
-## 4.2 Missing values overview
+## 4.2 Missing values overview and discussion
 
-Here we check whether or not we have missing values and how many there
-are and what are the possible reasons. We also check if these rows need
-to be filtered out or need to be adjusted either manually or with
-models.
+Here we check whether or not we have missing values in our dataset, how
+many there are and what are the possible reasons for these missing
+values are. We use logical reasoning in order to determine what to do
+with potential missing data. Here we show a table that shows the amount
+of NA values for each column and also a percentage of how many values
+are missing in regards to the total dataset.
 
 ```{r missingness}
 na_count <- sapply(flights, function(x) sum(is.na(x)))
 na_pct   <- round(100 * na_count / nrow(flights), 2)
 
 na_table <- data.frame(
-  variable = names(flights),
   na_count = as.integer(na_count),
   na_pct = na_pct
 )
@@ -302,12 +244,21 @@ na_table <- na_table[order(-na_table$na_pct), ]
 na_table
 ```
 
-First we check whether the "NA"s occurring in the delay rows are the
-same. The cell below tells us this is the case. This shows that these
-`DELAY` variables are jointly observed or missing, this indicates that
-the this data is probably complete for these rows. These rows are filled
-in after a flight occurred and the significant delay is reported, this
-also seems to be the case.
+Firstly we see a column `Unnamed..27` which seems to have only NA values
+making the column absolute and removable. We see for the operational
+variables and flight performance variables such as `DEP_TIME`,
+`ARR_TIME`, `AIR_TIME`, `WHEELS_ON`, `WHEELS_OFF` that 1-2% of all
+values are missing. We should note that all arrival variables have about
+the same amount of NA values missing and idem for the departure values.
+This probably means that the NA values are probably/hopefully
+explainable for the same reasons. First we check whether the NAs
+occurring in the delay rows all occur in the same row. The cell below
+tells us this is the case. This lets us know that these `DELAY` causes
+variables are jointly observed or missing. This is good sign. These rows
+are supposed to be filled in after a flight and give a reason for the
+delay if it was significant delayed (15 minutes or more). In our check
+this also seems to be the case. All flights that are 15+ minutes delayed
+have a cause and vice versa.
 
 ```{r delay-na-same}
 cause_cols <- intersect(c("CARRIER_DELAY","WEATHER_DELAY",
@@ -324,8 +275,8 @@ cat("More than 15 min delay but cause is NA value:", sum(delay15 & !cause_presen
 ```
 
 Now we check if it possible for a delay flight to have multiple reasons
-for delay. This seems to be possible and is the case for 51.56% of the
-delayed flights.
+for delay this might handy to know later on. This seems to be possible
+and is the case for 51.56% of the delayed flights.
 
 ```{r cause-compact}
 k <- rowSums(flights[cause_present, cause_cols, drop=FALSE] > 0)
@@ -338,92 +289,115 @@ multi_pct <- round(100 * multi_n / total_n, 2)
 cat("Of the flights with delay causes,", multi_pct, "% have multiple causes for delay.")
 ```
 
-Now we check if for the flights that have taken off all the important
-operational values are present (e.g. `ARR_DELAY`, `ARR_TIME` ect.) or
-that some or all values are missing. The NA values for the these rows as
-presented in the NA check cell could be explained if these are the rows
-of flights that were diverted or cancelled. If not crucial information
-might be missing. If so we analyse this here.
+We now know that our delay causes columns are in fact complete. We can
+now check if for the flights that have taken off all the important
+operational and performance variables are present (`ARR_DELAY`,
+`ARR_TIME` ect.) or that some or all values are missing for certain
+rows. The NA values for the these rows as presented above could be
+explained if these are the rows of flights that were diverted or
+cancelled. If not, crucial information might be missing. If so, we
+analyse this here.
 
-```{r tookoff-missing}
-took_off <- if ("WHEELS_OFF" %in% names(flights)) !is.na(flights$WHEELS_OFF) else !is.na(flights$DEP_TIME)
+```{r}
+flights_wo_cancelled <- which(flights$CANCELLED == 0 & flights$DIVERTED == 0)
+flights_wo_cancelled_df <- flights[flights_wo_cancelled, ]
 
-important_cols <- intersect(
-  c("DEP_TIME","WHEELS_OFF","DEP_DELAY","TAXI_OUT","ARR_TIME","ARR_DELAY","WHEELS_ON",
-    "TAXI_IN","AIR_TIME","ACTUAL_ELAPSED_TIME","DISTANCE"),
-  names(flights)
+na_count_wo_cd <- sapply(flights_wo_cancelled_df, function(x) sum(is.na(x)))
+na_pct_wo_cd   <- round(100 * na_count_wo_cd / nrow(flights_wo_cancelled_df), 2)
+
+na_table_wo_cd <- data.frame(
+  variable = names(flights_wo_cancelled_df),
+  na_count_wo_cd = as.integer(na_count_wo_cd),
+  na_pct_wo_cd = na_pct_wo_cd
 )
 
-idx_took <- which(took_off)
-
-miss_any <- apply(is.na(flights[idx_took, important_cols, drop=FALSE]), 1, any)
-idx_miss <- idx_took[miss_any]
-
-CANCELLED <- if ("CANCELLED" %in% names(flights)) flights$CANCELLED else rep(0, nrow(flights))
-DIVERTED  <- if ("DIVERTED"  %in% names(flights)) flights$DIVERTED  else rep(0, nrow(flights))
-
-idx_expected   <- idx_miss[CANCELLED[idx_miss] == 1 | DIVERTED[idx_miss] == 1]
-idx_unexpected <- idx_miss[CANCELLED[idx_miss] == 0 & DIVERTED[idx_miss] == 0]
-
-cat("Flights that took-off:", length(idx_took), "\n")
-cat("Flights that took off with any missing important variable:", length(idx_miss), "\n")
-cat("Flights that took oof with missing variables due to cancellation or diversion:", length(idx_expected), "\n")
-cat("Flight that took off that were not cancelled or diverted and thus are unexpectedly incomplete:", length(idx_unexpected))
-
-missing_cols <- apply(is.na(flights[idx_unexpected, important_cols, drop=FALSE]), 1,
-                      function(r) paste(important_cols[r], collapse=", "))
-
-head(data.frame(row_id = idx_unexpected, missing_cols = missing_cols))
+na_table_wo_cd <- na_table_wo_cd[order(-na_table_wo_cd$na_pct_wo_cd), ]
+na_table_wo_cd
 ```
 
-It seems that the missing values are primarily in de `DEP_DELAY` and
-`ARR_DELAY` . This might cause some trouble because we use
-`DEP_DELAY` and `ARR_DELAY` as predictors in the pre-departure model.
-Let's check.
+We can see that a flight that was either cancelled or diverted, it
+accounts for the reasons that rows contain NA values for performance and
+operational variables. We can see that the only two performance
+variables that have still NA values are `ARR_DELAY` and `DEP_DELAY`,
+why? These NA values might cause some trouble when modelling because we
+use `ARR_DELAY` as predictors in the pre-departure model. Let's check by
+showing the rows were this data is missing.
 
 ```{r check-missing-mostly-delays}
-unexp_missing_rows <- is.na(flights[idx_unexpected, important_cols, drop=FALSE])
-
-delay_cols <- intersect(c("ARR_DELAY","DEP_DELAY"), important_cols)
-
-only_delays_missing <- apply(unexp_missing_rows, 1, function(r) {
-  miss_cols <- important_cols[r]
-  length(setdiff(miss_cols, delay_cols)) == 0
-})
-
-cat("Unexpectedly imcomplete:", nrow(unexp_missing_rows), "\n")
-cat("Rows where exclusively ARR_DELAY and/or DEP_DELAY are missing:", sum(only_delays_missing), "\n")
-cat("Rows with missing values beyond delays:", sum(!only_delays_missing), "\n")
-
-idx_more_missing <- idx_unexpected[!only_delays_missing]
+dep_delays_missing <- which(is.na(flights_wo_cancelled_df$DEP_DELAY)) 
+arr_delays_missing <- which(is.na(flights_wo_cancelled_df$ARR_DELAY))
+missing_delays <- flights_wo_cancelled_df[c(dep_delays_missing, arr_delays_missing), ]
+head(missing_delays)
 ```
 
-This is indeed the case except for one row, which we will discuss later.
 First we need to look into what we want to do with the rows in which the
-`DEP_DELAY` and/or `ARR_DELAY` variables are missing.
+`DEP_DELAY` and/or `ARR_DELAY` variables are missing. It seems that
+there are only NA values for these columns when the `CRS_DEP_TIME` and
+`DEP_TIME` have the same value and idem for the arrival. This means that
+in this dataset the NA values just mean that plane left exactly at the
+intended time. If this is the case we can replace the NA values in these
+rows for 0 values and these NA values are also explained than as well.
+We perform a quick check to see this is a 100 percent the case.
 
-```{r print_weird_row}
-head(flights[idx_more_missing, important_cols, drop=FALSE], 20)
+```{r fill_zero_delays}
+dep_na <- !is.na(missing_delays$CRS_DEP_TIME) & !is.na(missing_delays$DEP_TIME) &
+                 is.na(missing_delays$DEP_DELAY) &
+                 missing_delays$CRS_DEP_TIME == missing_delays$DEP_TIME
+
+arr_na <- !is.na(missing_delays$CRS_ARR_TIME) & !is.na(missing_delays$ARR_TIME) &
+                 is.na(missing_delays$ARR_DELAY) &
+                 missing_delays$CRS_ARR_TIME == missing_delays$ARR_TIME
+
+cat("DEP_DELAY NA but not CRS_DEP_TIME==DEP_TIME:", sum(dep_na_other), "\n")
+cat("ARR_DELAY NA but not CRS_ARR_TIME==ARR_TIME:", sum(arr_na_other))
 ```
 
-Above we can see that the row with index `1101624` is the row where not
-only the delay rows are missing but also other rows, namely the
-`AIR_TIME` and `ACTUAL_ELAPSED_TIME` . We can either choose to delete
-this row, keep it or fill it in with a estimate by calculating the
-difference between the `ARR_TIME` and the `DEP_TIME` . It would not
-really matter because it is just one row in a dataset of \~800000 rows
-and we don't need these variables for our classification specifically.
-Here we choose to estimate the values. As can be seen in 4.3.
+Now we have analysed all NA values and begin to clean our data properly.
 
-## 4.3 Cleaning + datatypes
+## 4.3 Cleaning and datatypes
+
+First, we do some final sanity checks for the values for variables. We
+check whether the distances are positive as well as airtime. We also
+check whether the departure and arrival delays are plausible which all
+seems to be the case.
+
+```{r sanity_checks}
+cat("There are", sum(flights$DISTANCE <= 0), "negative distances.", "\n")
+cat("There are", sum(flights$AIR_TIME <= 0, na.rm = TRUE) , "negative airtimes.", "\n")
+print("Departure delay summary:")
+summary(flights$DEP_DELAY) 
+print("Arrival delay summary:")
+summary(flights$ARR_DELAY) 
+```
+
+We create a df named `flights_clean` to not overwrite the `flights`
+variable that can be cleaned without overwriting our original data.
+
+```{r create_flights_clean}
+flights_clean <- flights
+```
+
+We begin with adjusting in accordance with the remarks made in section
+3.2. We the `FL_DATE` column a datatype datetime and drop the unuseful
+column `Unnamed..27` and ensure that the columns are the correct
+datatypes.
+
+```{r clean_types}
+drop_cols <- grep("^Unnamed", names(flights_clean), value = TRUE)
+flights_clean[drop_cols] <- NULL
+
+flights_clean$FL_DATE <- as.Date(flights_clean$FL_DATE)
+
+head(flights_clean, 4)
+```
 
 Now we do some minimal cleaning make sure the datatypes are correct. We
 make the integer time columns POSIXct datetime columns to be able to
 treat the time correctly.
 
-```{r convert-all-time-columns}
+```{r datetime_fix_overwrite}
 hhmm_to_hhmm_str <- function(x) {
-  x <- suppressWarnings(as.integer(x))
+  x <- as.integer(x)
   hh <- x %/% 100
   mm <- x %% 100
   out <- sprintf("%02d:%02d", hh, mm)
@@ -431,115 +405,82 @@ hhmm_to_hhmm_str <- function(x) {
   out
 }
 
-# Select all time columns 
-time_cols <- names(flights)[grepl("_TIME$", names(flights))]
-time_cols <- unique(c(time_cols, intersect(c("WHEELS_OFF","WHEELS_ON"), names(flights))))
-time_cols
+time_cols <- intersect(c("WHEELS_OFF","WHEELS_ON","DEP_TIME","ARR_TIME","CRS_DEP_TIME","CRS_ARR_TIME"), names(flights_clean))
 
-# Make a _str en _dt version
+# Replace columns to POSIXct
 for (cn in time_cols) {
-  flights[[paste0(cn, "_str")]] <- hhmm_to_hhmm_str(flights[[cn]])
-  flights[[paste0(cn, "_dt")]]  <- as.POSIXct(
-    paste("1970-01-01", flights[[paste0(cn, "_str")]]),
+  tmp_str <- hhmm_to_hhmm_str(flights_clean[[cn]])
+  flights_clean[[cn]] <- as.POSIXct(
+    paste(as.character(flights_clean$FL_DATE), tmp_str),
     format = "%Y-%m-%d %H:%M",
     tz = "UTC"
   )
 }
 
-head(flights[, c(time_cols, paste0(time_cols, "_str"), paste0(time_cols, "_dt")), drop=FALSE], 5)
-```
+# Overnight: is ARR_TIME < DEP_TIME + one day
+if (all(c("DEP_TIME","ARR_TIME") %in% names(flights_clean))) {
+  overnight <- !is.na(flights_clean$DEP_TIME) &
+               !is.na(flights_clean$ARR_TIME) &
+               (flights_clean$ARR_TIME < flights_clean$DEP_TIME)
 
-We make the `FL_DATE` column a datatype datetime, drop un useful columns
-and ensure that the columns are the correct datatypes.
-
-```{r clean_types}
-#Drop Unnamed..27 column with 100% NA values 
-drop_cols <- grep("^Unnamed", names(flights), value = TRUE)
-if (length(drop_cols) > 0) flights[drop_cols] <- NULL
-
-# Parse FL_DATE 
-if ("FL_DATE" %in% names(flights)) flights$FL_DATE <- as.Date(flights$FL_DATE)
-
-# Ensure integers
-for (cname in c("CANCELLED","DIVERTED")) {
-  if (cname %in% names(flights)) flights[[cname]] <- as.integer(flights[[cname]])
-}
-```
-
-We still need to estimate and thus clean row `1101624` .
-
-```{r clean-row-1101624}
-idx <- 1101624
-
-# HHMM -> minutes since midnight
-hhmm_to_min <- function(x) {
-  x <- suppressWarnings(as.integer(x))
-  hh <- x %/% 100
-  mm <- x %% 100
-  out <- hh*60 + mm
-  out[is.na(x) | mm > 59 | hh < 0 | hh > 29] <- NA
-  out
-}
-
-# elapsed minutes between DEP_TIME and ARR_TIME (handles overnight)
-dep_min <- hhmm_to_min(flights$DEP_TIME[idx])
-arr_min <- hhmm_to_min(flights$ARR_TIME[idx])
-elap <- arr_min - dep_min
-if (!is.na(elap) && elap < 0) elap <- elap + 24*60
-
-# 1) Fill ACTUAL_ELAPSED_TIME if missing
-if ("ACTUAL_ELAPSED_TIME" %in% names(flights) && is.na(flights$ACTUAL_ELAPSED_TIME[idx])) {
-  flights$ACTUAL_ELAPSED_TIME[idx] <- elap
-}
-
-# 2) Fill AIR_TIME if missing
-if ("AIR_TIME" %in% names(flights) && is.na(flights$AIR_TIME[idx])) {
-  if (all(c("TAXI_OUT","TAXI_IN") %in% names(flights)) &&
-      !is.na(flights$TAXI_OUT[idx]) && !is.na(flights$TAXI_IN[idx])) {
-    flights$AIR_TIME[idx] <- elap - flights$TAXI_OUT[idx] - flights$TAXI_IN[idx]
-  } else {
-    flights$AIR_TIME[idx] <- elap
+  arrival_side <- intersect(c("ARR_TIME","WHEELS_ON","CRS_ARR_TIME"), time_cols)
+  for (cn in arrival_side) {
+    flights_clean[[cn]][overnight] <- flights_clean[[cn]][overnight] + 24*3600
   }
 }
 
-# Show result
-show_cols <- intersect(c("DEP_TIME","ARR_TIME","TAXI_OUT","TAXI_IN","AIR_TIME","ACTUAL_ELAPSED_TIME"), names(flights))
-flights[idx, show_cols, drop=FALSE]
+head(flights_clean[, time_cols, drop=FALSE], 5)
 ```
 
-## 4.4 Feature engineering (pre-departure features)
+We now clean the NA values for the delay columns when the `CRS_DEP_TIME`
+and `DEP_TIME` are the same and idem for the arrival times.
 
-```{r feature_engineering}
-hhmm_to_minutes <- function(x) {
-  x <- suppressWarnings(as.integer(x))
-  hh <- x %/% 100
-  mm <- x %% 100
-  out <- hh*60 + mm
-  out[is.na(x) | mm > 59 | hh < 0 | hh > 29] <- NA
-  out
-}
+```{r impute_delays_posixct}
+idx_dep0 <- which(
+  is.na(flights_clean$DEP_DELAY) &
+  !is.na(flights_clean$DEP_TIME) & !is.na(flights_clean$CRS_DEP_TIME) &
+  flights_clean$DEP_TIME == flights_clean$CRS_DEP_TIME
+)
 
-if ("FL_DATE" %in% names(flights)) {
-  flights$MONTH <- as.integer(format(flights$FL_DATE, "%m"))
-  flights$WEEKDAY <- weekdays(flights$FL_DATE)
-}
+idx_arr0 <- which(
+  is.na(flights_clean$ARR_DELAY) &
+  !is.na(flights_clean$ARR_TIME) & !is.na(flights_clean$CRS_ARR_TIME) &
+  flights_clean$ARR_TIME == flights_clean$CRS_ARR_TIME
+)
 
-if ("CRS_DEP_TIME" %in% names(flights)) {
-  flights$CRS_DEP_MIN <- hhmm_to_minutes(flights$CRS_DEP_TIME)
-  flights$CRS_DEP_HOUR <- floor(flights$CRS_DEP_MIN / 60)
-}
+# vullen
+flights_clean$DEP_DELAY[idx_dep0] <- 0
+flights_clean$ARR_DELAY[idx_arr0] <- 0
 
-if ("CRS_ARR_TIME" %in% names(flights)) {
-  flights$CRS_ARR_MIN <- hhmm_to_minutes(flights$CRS_ARR_TIME)
-  flights$CRS_ARR_HOUR <- floor(flights$CRS_ARR_MIN / 60)
-}
-
-if (all(c("ORIGIN","DEST") %in% names(flights))) {
-  flights$ROUTE <- paste(flights$ORIGIN, flights$DEST, sep = "-")
-}
+# check
+head(flights_clean[idx_dep0, c("CRS_DEP_TIME","DEP_TIME","DEP_DELAY")])
+head(flights_clean[idx_arr0, c("CRS_ARR_TIME","ARR_TIME","ARR_DELAY")])
 ```
 
-## 4.5 Target definition (classification)
+Now we check if all the data is clean. First we delete all the cancelled
+and diverted rows because theserows are not relevant for our analysis.
+
+```{r}
+keep <- (is.na(flights_clean$CANCELLED) | flights_clean$CANCELLED == 0) &
+        (is.na(flights_clean$DIVERTED)  | flights_clean$DIVERTED  == 0)
+
+flights_clean <- flights_clean[keep, , drop = FALSE]
+
+cat("Removed:", sum(!keep), "\n")
+cat("Rows after:", nrow(flights_clean))
+```
+
+We decide to add some columns that make our analysis and modelling
+easier later on, such as `IS_DELAYED` day of the week column which might
+be interesting in the analysis and a column which contains a Boolean on
+whether a flight is significantly delayed (15 minutes or later).Now we
+add a column in which we see if a plane was significantly delayed.
+
+```{r}
+flights_clean$IS_DELAYED <- ifelse(flights_clean$DEP_DELAY > 15, TRUE, FALSE) 
+```
+
+## 4.4 Target definition (classification)
 
 > **No leakage in modelling:** we will use only pre-departure features
 > for the models. Targets come from outcome columns.
@@ -549,7 +490,7 @@ if (all(c("ORIGIN","DEST") %in% names(flights))) {
 if (all(c("ARR_DELAY","CANCELLED","DIVERTED") %in% names(flights))) {
   flights$IS_DELAYED_15 <- ifelse(
     flights$CANCELLED == 0 & flights$DIVERTED == 0 & !is.na(flights$ARR_DELAY),
-    as.integer(flights$ARR_DELAY >= 15),
+    as.integer(flights$ARR_DELAY >= 15), 
     NA
   )
 }
