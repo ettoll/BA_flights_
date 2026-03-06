@@ -202,6 +202,68 @@ used to refer to groups of variables further in the report:
 
 -   **Flight status indicators:** CANCELLED, DIVERTED
 
+The variables can be sorted into the following categories:
+
+### Flight identifiers
+
+| Variable          | Description        |
+|-------------------|--------------------|
+| FL_DATE           | Date of the flight |
+| OP_CARRIER        | Operating airline  |
+| OP_CARRIER_FL_NUM | Flight number      |
+
+### Route information
+
+| Variable | Description               |
+|----------|---------------------------|
+| ORIGIN   | Departure airport         |
+| DEST     | Arrival airport           |
+| DISTANCE | Distance between airports |
+
+### Scheduled times
+
+| Variable         | Description               |
+|------------------|---------------------------|
+| CRS_DEP_TIME     | Scheduled departure time  |
+| CRS_ARR_TIME     | Scheduled arrival time    |
+| CRS_ELAPSED_TIME | Scheduled flight duration |
+
+### Actual flight performance
+
+| Variable  | Description           |
+|-----------|-----------------------|
+| DEP_TIME  | Actual departure time |
+| ARR_TIME  | Actual arrival time   |
+| DEP_DELAY | Departure delay       |
+| ARR_DELAY | Arrival delay         |
+| AIR_TIME  | Time spent in air     |
+
+### Operational metrics
+
+| Variable   | Description              |
+|------------|--------------------------|
+| TAXI_OUT   | Taxi time before takeoff |
+| TAXI_IN    | Taxi time after landing  |
+| WHEELS_OFF | Takeoff time             |
+| WHEELS_ON  | Landing time             |
+
+### Flight status
+
+| Variable  | Description                 |
+|-----------|-----------------------------|
+| CANCELLED | Indicates cancelled flights |
+| DIVERTED  | Indicates diverted flights  |
+
+### Delay causes
+
+| Variable            | Description                            |
+|---------------------|----------------------------------------|
+| CARRIER_DELAY       | Delay caused by airline                |
+| WEATHER_DELAY       | Delay caused by weather                |
+| NAS_DELAY           | Delay caused by air traffic system     |
+| SECURITY_DELAY      | Delay caused by security               |
+| LATE_AIRCRAFT_DELAY | Delay caused by late incoming aircraft |
+
 # 4. Data exploration & preparation
 
 ## 4.1 Data summary
