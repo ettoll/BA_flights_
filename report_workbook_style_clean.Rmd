@@ -149,7 +149,7 @@ for (i in packages) {
 set.seed(46748717)
 ```
 
-# 3. Data loading 
+# 3. Data loading
 
 ## 3.1 Data in `data/` folder
 
@@ -504,16 +504,175 @@ table(flights$IS_DELAYED_15, useNA="ifany")
 table(flights$IS_CANCELLED, useNA="ifany")
 ```
 
-# 5. Exploratory visualisation (ggplot2)
+# 5. Exploratory vizualisation (ggplot2)
+
+First we have a look at the base rate, this is the amount of how many
+flights are more than 15 minutes delayed
 
 ```{r eda_plots}
-if (all(c("MONTH","IS_DELAYED_15") %in% names(flights))) {
-  dfm <- aggregate(IS_DELAYED_15 ~ MONTH, flights, function(x) mean(x, na.rm = TRUE))
-  ggplot(dfm, aes(x = MONTH, y = IS_DELAYED_15)) +
-    geom_line() + geom_point() +
-    scale_x_continuous(breaks = 1:12) +
-    ylab("Delay rate (>=15 min)") + ggtitle("Delay rate per month")
-}
+delay_rate <- mean(flights_clean$IS_DELAYED_15)
+delay_rate 
+```
+
+Visulation of the delay
+
+```{r}
+df_target <- data.frame(
+  class = factor(flights_clean$IS_DELAYED_15, levels = c(0,1), labels = c("On-time (<15m)", "Delayed (>=15m)"))
+)
+ggplot(df_target, aes(x = class)) +
+  geom_bar() +
+  labs(title = "Class distribution: delayed vs on-time", x = "", y = "#Flights") +
+  coord_flip()
+```
+
+Delay per month
+
+```{r}
+df_month_rate <- aggregate(IS_DELAYED_15 ~ MONTH, flights_eda, function(x) mean(x, na.rm = TRUE))
+df_month_n    <- aggregate(IS_DELAYED_15 ~ MONTH, flights_eda, length)
+names(df_month_n)[2] <- "n"
+
+df_month <- merge(df_month_rate, df_month_n, by = "MONTH")
+names(df_month)[2] <- "delay_rate"
+
+ggplot(df_month, aes(x = MONTH, y = delay_rate)) +
+  geom_line() + geom_point() +
+  scale_x_continuous(breaks = 1:12) +
+  scale_y_continuous(labels = pct_label) +
+  labs(title = "Delay rate (>=15m) per month", x = "Month", y = "Delay rate")
+
+ggplot(df_month, aes(x = MONTH, y = n)) +
+  geom_col() +
+  scale_x_continuous(breaks = 1:12) +
+  labs(title = "#Flights per month", x = "Month", y = "#")
+```
+
+Delay per weekday
+
+```{r}
+df_wday_rate <- aggregate(IS_DELAYED_15 ~ WEEKDAY_NL, flights_eda, mean)
+names(df_wday_rate)[2] <- "delay_rate"
+
+ggplot(df_wday_rate, aes(x = WEEKDAY_NL, y = delay_rate)) +
+  geom_col() +
+  scale_y_continuous(labels = pct_label) +
+  labs(title = "Delay rate (>=15m) per weekday", x = "Day of the week", y = "Delay rate")
+
+```
+
+Delay rate per schedulded departure time
+
+```{r}
+stopifnot("CRS_DEP_HOUR" %in% names(flights_eda))
+
+df_hour <- aggregate(IS_DELAYED_15 ~ CRS_DEP_HOUR, flights_eda, mean)
+names(df_hour)[2] <- "delay_rate"
+
+ggplot(df_hour, aes(x = CRS_DEP_HOUR, y = delay_rate)) +
+  geom_line() + geom_point() +
+  scale_x_continuous(breaks = 0:23) +
+  scale_y_continuous(labels = pct_label) +
+  labs(title = "Delay rate (>=15m) per planned departure time", x = "Hour (0-23)", y = "Delay rate")
+```
+
+Heat map: weekday x departure hour
+
+```{r}
+df_hw <- aggregate(IS_DELAYED_15 ~ WEEKDAY_NL + CRS_DEP_HOUR, flights_eda, mean)
+names(df_hw)[3] <- "delay_rate"
+
+ggplot(df_hw, aes(x = CRS_DEP_HOUR, y = WEEKDAY_NL, fill = delay_rate)) +
+  geom_tile() +
+  scale_x_continuous(breaks = seq(0, 23, 2)) +
+  scale_fill_gradient(labels = pct_label, limits = c(0, 1)) +
+  labs(title = "Heatmap delay rate (>=15m): weekday × vertrekuur",
+       x = "Planned departure hour", y = "Day of the week", fill = "Delay rate")
+
+```
+
+Delay rate per airplane
+
+```{r}
+MIN_N_CARRIER <- 5000  # Hier random ondergrens gekozen maar deze moeten we toelichten
+
+carrier_rate <- aggregate(IS_DELAYED_15 ~ OP_CARRIER, flights_eda, mean)
+carrier_n    <- aggregate(IS_DELAYED_15 ~ OP_CARRIER, flights_eda, length)
+names(carrier_n)[2] <- "n"
+
+carrier_summary <- merge(carrier_rate, carrier_n, by = "OP_CARRIER")
+names(carrier_summary)[2] <- "delay_rate"
+
+carrier_summary <- subset(carrier_summary, n >= MIN_N_CARRIER)
+carrier_summary <- carrier_summary[order(-carrier_summary$delay_rate), ]
+
+top_carriers <- head(carrier_summary, 10)
+
+ggplot(top_carriers, aes(x = reorder(OP_CARRIER, delay_rate), y = delay_rate)) +
+  geom_col() +
+  coord_flip() +
+  scale_y_continuous(labels = pct_label) +
+  labs(title = "Delay rate (>=15m) per airline (top 10, min volume filter)",
+       x = "Airplane", y = "Delay rate")
+```
+
+Delay rate per airport
+
+```{r}
+MIN_N_AIRPORT <- 20000
+
+origin_rate <- aggregate(IS_DELAYED_15 ~ ORIGIN, flights_eda, mean)
+origin_n    <- aggregate(IS_DELAYED_15 ~ ORIGIN, flights_eda, length)
+names(origin_n)[2] <- "n"
+
+origin_summary <- merge(origin_rate, origin_n, by = "ORIGIN")
+names(origin_summary)[2] <- "delay_rate"
+
+origin_summary <- subset(origin_summary, n >= MIN_N_AIRPORT)
+origin_summary <- origin_summary[order(-origin_summary$delay_rate), ]
+
+top_origins <- head(origin_summary, 15)
+
+ggplot(top_origins, aes(x = reorder(ORIGIN, delay_rate), y = delay_rate)) +
+  geom_col() +
+  coord_flip() +
+  scale_y_continuous(labels = pct_label) +
+  labs(title = "Delay rate (>=15m) per origin airport (top 15, min volume filter)",
+       x = "Origin airport", y = "Delay rate")
+```
+
+Scatterplot
+
+```{r}
+origin_top50_vol <- origin_summary[order(-origin_summary$n), ][1:50, ]
+
+ggplot(origin_top50_vol, aes(x = n, y = delay_rate)) +
+  geom_point() +
+  scale_x_log10() +
+  scale_y_continuous(labels = pct_label) +
+  labs(title = "Origin airports: volume vs delay rate (top 50 volume)",
+       x = "Aantal vluchten (log schaal)", y = "Delay rate")
+```
+
+Multivariate relations and representation choices for features. In other
+words distance and scheduled departure as risk factors
+
+```{r}
+set.seed(46748717)
+N_VIS <- min(200000, nrow(flights_eda))
+idx_vis <- sample(seq_len(nrow(flights_eda)), N_VIS)
+flights_vis <- flights_eda[idx_vis, ]
+ggplot(flights_vis, aes(x = DISTANCE, y = IS_DELAYED_15)) +
+  stat_summary_bin(fun = mean, bins = 60, geom = "line") +
+  scale_y_continuous(labels = pct_label, limits = c(0, 1)) +
+  labs(title = "Delay risk vs distance (binned mean)", x = "Distance (miles)", y = "Delay risk")
+
+flights_vis <- flights_eda[idx_vis, ]
+
+ggplot(flights_vis, aes(x = CRS_DEP_MIN, y = IS_DELAYED_15)) +
+  stat_summary_bin(fun = mean, bins = 48, geom = "line") +
+  scale_y_continuous(labels = pct_label, limits = c(0, 1)) +
+  labs(title = "Delay risk vs planned departure time (minutes)", x = "CRS_DEP_MIN", y = "Delay risk")
 ```
 
 ```{r eda_airline_airport}
