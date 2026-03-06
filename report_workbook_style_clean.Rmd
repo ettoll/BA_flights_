@@ -536,130 +536,114 @@ We decide to add some columns that make our analysis and modelling
 easier later on, such as `IS_DELAYED` day of the week column which might
 be interesting in the analysis and a column which contains a Boolean on
 whether a flight is significantly delayed (15 minutes or later).Now we
-add a column in which we see if a plane was significantly delayed.
+add a column in which we see if a plane was significantly delayed. We
+also add a `MONTH` and `WEEKDAY` column.
 
 ```{r}
 flights_clean$IS_DELAYED <- ifelse(flights_clean$DEP_DELAY > 15, TRUE, FALSE) 
+flights_clean$WEEKDAY <- weekdays(flights_clean$FL_DATE)
+flights_clean$MONTH <- as.integer(format(flights_clean$FL_DATE, "%m"))
 ```
 
-## 4.4 Target definition (classification)
-
-> **No leakage in modelling:** we will use only pre-departure features
-> for the models. Targets come from outcome columns.
-
-```{r targets}
-# Delay target: ARR_DELAY >= 15 (only not-cancelled and not-diverted)
-if (all(c("ARR_DELAY","CANCELLED","DIVERTED") %in% names(flights))) {
-  flights$IS_DELAYED_15 <- ifelse(
-    flights$CANCELLED == 0 & flights$DIVERTED == 0 & !is.na(flights$ARR_DELAY),
-    as.integer(flights$ARR_DELAY >= 15), 
-    NA
-  )
-}
-
-# Cancellation target
-if ("CANCELLED" %in% names(flights)) {
-  flights$IS_CANCELLED <- flights$CANCELLED
-}
-
-table(flights$IS_DELAYED_15, useNA="ifany")
-table(flights$IS_CANCELLED, useNA="ifany")
-```
-
-# 5. Exploratory vizualisation (ggplot2)
+# 5. Exploratory visualisation
 
 First we have a look at the base rate, this is the amount of how many
 flights are more than 15 minutes delayed
 
-```{r eda_plots}
-delay_rate <- mean(flights_clean$IS_DELAYED_15)
+```{r mean_delay_rate}
+delay_rate <- mean(flights_clean$IS_DELAYED)
 delay_rate 
 ```
 
-Visulation of the delay
+First we show a bar chart of our data that simply displays the amount of
+flights that are delayed and on-time. We see that around 18% of flights
+are significantly delayed.
 
 ```{r}
 df_target <- data.frame(
-  class = factor(flights_clean$IS_DELAYED_15, levels = c(0,1), labels = c("On-time (<15m)", "Delayed (>=15m)"))
+  class = factor(flights_clean$IS_DELAYED, levels = c(0,1), labels = c("On time", "Delayed (15 min)"))
 )
+
 ggplot(df_target, aes(x = class)) +
   geom_bar() +
-  labs(title = "Class distribution: delayed vs on-time", x = "", y = "#Flights") +
+  labs(title = "Class distribution: delayed vs on-time", x = "", y = "amount of flights") +
   coord_flip()
 ```
 
-Delay per month
+Here we plot the delay rate per month and the amount of flights per
+month. It is worth mentioning that the in the summer months the delay
+amount significantly increasing proportional to the slight increase in
+flights that we see in the graph.
 
 ```{r}
-df_month_rate <- aggregate(IS_DELAYED_15 ~ MONTH, flights_eda, function(x) mean(x, na.rm = TRUE))
-df_month_n    <- aggregate(IS_DELAYED_15 ~ MONTH, flights_eda, length)
+df_month_rate <- aggregate(IS_DELAYED ~ MONTH, flights_clean, function(x) mean(x, na.rm = TRUE))
+df_month_n    <- aggregate(IS_DELAYED ~ MONTH, flights_clean, length)
 names(df_month_n)[2] <- "n"
 
 df_month <- merge(df_month_rate, df_month_n, by = "MONTH")
 names(df_month)[2] <- "delay_rate"
 
+pct_label <- function(x) paste0(round(100*x, 1), "%")
+
 ggplot(df_month, aes(x = MONTH, y = delay_rate)) +
   geom_line() + geom_point() +
   scale_x_continuous(breaks = 1:12) +
   scale_y_continuous(labels = pct_label) +
-  labs(title = "Delay rate (>=15m) per month", x = "Month", y = "Delay rate")
+  coord_cartesian(ylim = c(0, 0.30)) +
+  labs(title = "Delay rate per month", x = "Month", y = "Delay rate")
 
 ggplot(df_month, aes(x = MONTH, y = n)) +
   geom_col() +
   scale_x_continuous(breaks = 1:12) +
-  labs(title = "#Flights per month", x = "Month", y = "#")
+  labs(title = "Amount of flights per month", x = "Month", y = "#")
 ```
 
-Delay per weekday
+The delays per weekday shows that those are relatively stable during the
+week, with values around 18-21%. On Fridays and Thursdays there are
+slightly highiher percentagerates, while on Saterday their are clearly
+lower delay rates. This pattern can be explained by the fact that there
+are differneces in flightvolume and operational pressure: during the
+week their are more commercial and business related flights that arwe
+aslo connected, while on Saturday the operational pressure is lower,
+what results in less delay. In general, it seems that the day of the
+week does not have significantly influence on the change of delay, what
+suggest that there are other factors, suchs as departure time, airport
+or airplane that are maybe play ar ole in the explanination of the
+delays.
 
 ```{r}
-df_wday_rate <- aggregate(IS_DELAYED_15 ~ WEEKDAY_NL, flights_eda, mean)
+df_wday_rate <- aggregate(IS_DELAYED ~ WEEKDAY, flights_clean, mean)
 names(df_wday_rate)[2] <- "delay_rate"
 
-ggplot(df_wday_rate, aes(x = WEEKDAY_NL, y = delay_rate)) +
+ggplot(df_wday_rate, aes(x = WEEKDAY, y = delay_rate)) +
   geom_col() +
   scale_y_continuous(labels = pct_label) +
-  labs(title = "Delay rate (>=15m) per weekday", x = "Day of the week", y = "Delay rate")
+  labs(title = "Delay rate per weekday", x = "Day of the week", y = "Delay rate")
 
-```
-
-Delay rate per schedulded departure time
-
-```{r}
-stopifnot("CRS_DEP_HOUR" %in% names(flights_eda))
-
-df_hour <- aggregate(IS_DELAYED_15 ~ CRS_DEP_HOUR, flights_eda, mean)
-names(df_hour)[2] <- "delay_rate"
-
-ggplot(df_hour, aes(x = CRS_DEP_HOUR, y = delay_rate)) +
-  geom_line() + geom_point() +
-  scale_x_continuous(breaks = 0:23) +
-  scale_y_continuous(labels = pct_label) +
-  labs(title = "Delay rate (>=15m) per planned departure time", x = "Hour (0-23)", y = "Delay rate")
 ```
 
 Heat map: weekday x departure hour
 
 ```{r}
-df_hw <- aggregate(IS_DELAYED_15 ~ WEEKDAY_NL + CRS_DEP_HOUR, flights_eda, mean)
+df_hw <- aggregate(IS_DELAYED ~ WEEKDAY + CRS_DEP_TIME, flights_clean, mean)
 names(df_hw)[3] <- "delay_rate"
 
-ggplot(df_hw, aes(x = CRS_DEP_HOUR, y = WEEKDAY_NL, fill = delay_rate)) +
+ggplot(df_hw, aes(x = CRS_DEP_TIME, y = WEEKDAY, fill = delay_rate)) +
   geom_tile() +
   scale_x_continuous(breaks = seq(0, 23, 2)) +
   scale_fill_gradient(labels = pct_label, limits = c(0, 1)) +
-  labs(title = "Heatmap delay rate (>=15m): weekday × vertrekuur",
+  labs(title = "Heatmap delay rate: weekday × vertrekuur",
        x = "Planned departure hour", y = "Day of the week", fill = "Delay rate")
 
 ```
 
-Delay rate per airplane
+Delay rate per airplane. The first planes seem to be private jets.
 
 ```{r}
-MIN_N_CARRIER <- 5000  # Hier random ondergrens gekozen maar deze moeten we toelichten
+MIN_N_CARRIER <- 5000
 
-carrier_rate <- aggregate(IS_DELAYED_15 ~ OP_CARRIER, flights_eda, mean)
-carrier_n    <- aggregate(IS_DELAYED_15 ~ OP_CARRIER, flights_eda, length)
+carrier_rate <- aggregate(IS_DELAYED ~ OP_CARRIER, flights_clean, mean)
+carrier_n    <- aggregate(IS_DELAYED ~ OP_CARRIER, flights_clean, length)
 names(carrier_n)[2] <- "n"
 
 carrier_summary <- merge(carrier_rate, carrier_n, by = "OP_CARRIER")
@@ -683,8 +667,8 @@ Delay rate per airport
 ```{r}
 MIN_N_AIRPORT <- 20000
 
-origin_rate <- aggregate(IS_DELAYED_15 ~ ORIGIN, flights_eda, mean)
-origin_n    <- aggregate(IS_DELAYED_15 ~ ORIGIN, flights_eda, length)
+origin_rate <- aggregate(IS_DELAYED ~ ORIGIN, flights_clean, mean)
+origin_n    <- aggregate(IS_DELAYED ~ ORIGIN, flights_clean, length)
 names(origin_n)[2] <- "n"
 
 origin_summary <- merge(origin_rate, origin_n, by = "ORIGIN")
@@ -721,20 +705,20 @@ words distance and scheduled departure as risk factors
 
 ```{r}
 set.seed(46748717)
-N_VIS <- min(200000, nrow(flights_eda))
-idx_vis <- sample(seq_len(nrow(flights_eda)), N_VIS)
-flights_vis <- flights_eda[idx_vis, ]
-ggplot(flights_vis, aes(x = DISTANCE, y = IS_DELAYED_15)) +
+N_VIS <- min(200000, nrow(flights_clean))
+idx_vis <- sample(seq_len(nrow(flights_clean)), N_VIS)
+flights_vis <- flights_clean[idx_vis, ]
+ggplot(flights_vis, aes(x = DISTANCE, y = IS_DELAYED)) +
   stat_summary_bin(fun = mean, bins = 60, geom = "line") +
   scale_y_continuous(labels = pct_label, limits = c(0, 1)) +
   labs(title = "Delay risk vs distance (binned mean)", x = "Distance (miles)", y = "Delay risk")
 
-flights_vis <- flights_eda[idx_vis, ]
+flights_vis <- flights_clean[idx_vis, ]
 
-ggplot(flights_vis, aes(x = CRS_DEP_MIN, y = IS_DELAYED_15)) +
+ggplot(flights_vis, aes(x = CRS_DEP_TIME, y = IS_DELAYED)) +
   stat_summary_bin(fun = mean, bins = 48, geom = "line") +
   scale_y_continuous(labels = pct_label, limits = c(0, 1)) +
-  labs(title = "Delay risk vs planned departure time (minutes)", x = "CRS_DEP_MIN", y = "Delay risk")
+  labs(title = "Delay risk vs planned departure time (minutes)", x = "CRS_DEP_TIME", y = "Delay risk")
 ```
 
 ```{r eda_airline_airport}
@@ -755,208 +739,22 @@ if (all(c("IS_DELAYED_15","OP_CARRIER","ORIGIN") %in% names(flights))) {
 }
 ```
 
-**Interpretation (write):** - Seasonality?\
-- Which carriers/airports stand out?\
-- Class imbalance?
-
-# 6. Dimension reduction & clustering (Workbook: Dimension reduction and clustering)
-
-We cluster **airports** based on *pre-departure* aggregated profiles
-(interpretability).
-
-```{r airport_profiles}
-needed <- c("ORIGIN","IS_DELAYED_15","IS_CANCELLED","DISTANCE","CRS_ELAPSED_TIME")
-needed <- needed[needed %in% names(flights)]
-
-if (all(c("ORIGIN","IS_DELAYED_15") %in% names(flights))) {
-  base_df <- flights[!is.na(flights$IS_DELAYED_15), ]
-
-  # aggregate per ORIGIN
-  ap <- aggregate(
-    cbind(IS_DELAYED_15, IS_CANCELLED, DISTANCE, CRS_ELAPSED_TIME) ~ ORIGIN,
-    data = base_df,
-    FUN = function(x) mean(x, na.rm = TRUE)
-  )
-
-  # add volume
-  ap_n <- aggregate(IS_DELAYED_15 ~ ORIGIN, data = base_df, FUN = length)
-  names(ap_n)[2] <- "n"
-  ap <- merge(ap, ap_n, by = "ORIGIN")
-
-  names(ap) <- c("ORIGIN","delay_rate","cancel_rate","avg_distance","avg_sched_time","n")
-
-  # scale numeric columns
-  ap_scaled <- scale(ap[, c("delay_rate","cancel_rate","avg_distance","avg_sched_time","n")])
-
-  set.seed(1)
-  km <- kmeans(ap_scaled, centers = 4, nstart = 20)
-  ap$cluster <- factor(km$cluster)
-
-  head(ap)
-}
-```
-
-```{r cluster_viz}
-if (exists("ap")) {
-  ggplot(ap, aes(x = delay_rate, y = cancel_rate, color = cluster)) +
-    geom_point(alpha = 0.8) +
-    ggtitle("Airport clusters (delay & cancellation rates)") +
-    xlab("Delay rate (>=15 min)") + ylab("Cancellation rate")
-}
-```
+# 6. Dimension reduction and clustering
 
 ## 6.1 PCA
 
-```{r pca}
-if (exists("ap_scaled")) {
-  pca_res <- prcomp(ap_scaled, center = TRUE, scale. = TRUE)
-  summary(pca_res)
+## 6.2 Correlation heatmap
 
-  factoextra::fviz_eig(pca_res, addlabels = TRUE)
-  factoextra::fviz_pca_biplot(pca_res, repel = TRUE)
-}
-```
+# 7. Modelling 
 
-## 6.2 Correlation heatmap (replace GGally with reshape2 + ggplot2)
+## 7.1 Model 1: C5.0 decision tree
 
-```{r corr_heatmap}
-if (exists("ap")) {
-  num_df <- ap[, c("delay_rate","cancel_rate","avg_distance","avg_sched_time","n")]
-  cm <- cor(num_df, use = "complete.obs")
-  cm_melt <- reshape2::melt(cm)
+## 7.2 Model 2: Random Forest
 
-  ggplot(cm_melt, aes(x = Var1, y = Var2, fill = value)) +
-    geom_tile() +
-    labs(title = "Correlation matrix (airport profile features)",
-         x = "", y = "", fill = "cor") +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
-}
-```
+## 7.3 Comparison 
 
-**Interpretation (write):** - What do clusters represent?\
-- Do PCA axes have meaning (loadings)?\
-- Would you use a cluster label as a feature (yes/no and why)?
+# 8. Conclusions and recommendations
 
-# 7. Modelling (Workbook: Classification)
+## 8.1 Operational recommendations
 
-We fit two models (C5.0 tree + Random Forest) using **pre-departure**
-features only.
-
-```{r modelling_data}
-TARGET <- "IS_DELAYED_15"  # TODO: or "IS_CANCELLED"
-
-candidate_features <- c(
-  "OP_CARRIER","ORIGIN","DEST",
-  "MONTH","WEEKDAY","CRS_DEP_HOUR",
-  "CRS_ELAPSED_TIME","DISTANCE"
-)
-features <- intersect(candidate_features, names(flights))
-
-stopifnot(TARGET %in% names(flights))
-stopifnot(length(features) >= 3)
-
-model_df <- flights[, c(TARGET, features)]
-model_df <- model_df[complete.cases(model_df), ]
-
-# collapse high-cardinality airports to top-N
-topN_collapse <- function(x, N = 40) {
-  tb <- sort(table(x), decreasing = TRUE)
-  keep <- names(tb)[1:min(N, length(tb))]
-  out <- ifelse(x %in% keep, x, "OTHER")
-  factor(out)
-}
-
-if ("ORIGIN" %in% names(model_df)) model_df$ORIGIN <- topN_collapse(model_df$ORIGIN, 40)
-if ("DEST" %in% names(model_df)) model_df$DEST <- topN_collapse(model_df$DEST, 40)
-if ("OP_CARRIER" %in% names(model_df)) model_df$OP_CARRIER <- factor(model_df$OP_CARRIER)
-if ("WEEKDAY" %in% names(model_df)) model_df$WEEKDAY <- factor(model_df$WEEKDAY)
-
-split <- rsample::initial_split(model_df, prop = 0.7)
-train <- rsample::training(split)
-test  <- rsample::testing(split)
-
-dim(train); dim(test)
-table(train[[TARGET]])
-```
-
-## 7.1 Baseline
-
-```{r baseline}
-y_true <- test[[TARGET]]
-y_pred0 <- rep(0, length(y_true))
-
-gmodels::CrossTable(y_true, y_pred0,
-                    prop.chisq = FALSE, prop.t = FALSE, prop.r = FALSE,
-                    dnn = c("Actual", "Predicted (always 0)"))
-```
-
-## 7.2 Model 1 — C5.0 decision tree
-
-```{r c50}
-form <- as.formula(paste(TARGET, "~", paste(features, collapse = " + ")))
-
-train_c50 <- train
-test_c50 <- test
-train_c50[[TARGET]] <- factor(train_c50[[TARGET]])
-test_c50[[TARGET]]  <- factor(test_c50[[TARGET]])
-
-tree <- C50::C5.0(form, data = train_c50)
-tree
-
-pred_tree <- predict(tree, newdata = test_c50)
-gmodels::CrossTable(test_c50[[TARGET]], pred_tree,
-                    prop.chisq = FALSE, prop.t = FALSE, prop.r = FALSE,
-                    dnn = c("Actual", "Predicted (C5.0)"))
-```
-
-## 7.3 Model 2 — Random Forest
-
-```{r rf}
-train_rf <- train
-test_rf <- test
-train_rf[[TARGET]] <- factor(train_rf[[TARGET]])
-test_rf[[TARGET]]  <- factor(test_rf[[TARGET]])
-
-rf <- randomForest::randomForest(form, data = train_rf, ntree = 200)
-rf
-
-pred_rf <- predict(rf, newdata = test_rf)
-gmodels::CrossTable(test_rf[[TARGET]], pred_rf,
-                    prop.chisq = FALSE, prop.t = FALSE, prop.r = FALSE,
-                    dnn = c("Actual", "Predicted (RF)"))
-
-randomForest::varImpPlot(rf)
-```
-
-## 7.4 Comparison (write)
-
-Compare: - performance (confusion matrices) - interpretability (tree
-rules vs RF importance) - robustness / overfitting risk - operational
-usability (how would you use scores in planning?)
-
-**We recommend model \_\_\_ because \_\_\_ .**
-
-# 8. Conclusions & recommendations
-
-## 8.1 Operational recommendations (write)
-
-Examples: - “High-risk flight list” per day/airport → allocate buffers
-(gate agents/crew) - proactive passenger communication above a risk
-threshold - airport/carrier monitoring dashboard (month/weekday/hour)
-
-## 8.2 Limitations & next steps (write)
-
-Limitations: - no weather / ATC constraints - concept drift across years
-(policies, demand, post-COVID changes) - class imbalance (especially
-cancellations)
-
-Next steps (conceptual, workbooks 6–8): - when would representation
-learning add value and what data is needed? - why text analytics is not
-suitable here (no text fields) - how RL could apply if reformulated as
-sequential staffing decisions
-
-# 9. Reproducibility
-
-```{r sessioninfo}
-sessionInfo()
-```
+## 8.2 Limitations & next steps
