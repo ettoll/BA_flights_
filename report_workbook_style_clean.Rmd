@@ -410,8 +410,8 @@ arr_na <- !is.na(missing_delays$CRS_ARR_TIME) & !is.na(missing_delays$ARR_TIME) 
                  is.na(missing_delays$ARR_DELAY) &
                  missing_delays$CRS_ARR_TIME == missing_delays$ARR_TIME
 
-cat("DEP_DELAY NA but not CRS_DEP_TIME==DEP_TIME:", sum(dep_na_other), "\n")
-cat("ARR_DELAY NA but not CRS_ARR_TIME==ARR_TIME:", sum(arr_na_other))
+cat("DEP_DELAY NA but not CRS_DEP_TIME==DEP_TIME:", sum(dep_na), "\n")
+cat("ARR_DELAY NA but not CRS_ARR_TIME==ARR_TIME:", sum(arr_na))
 ```
 
 Now we have analysed all NA values and begin to clean our data properly.
@@ -741,20 +741,461 @@ if (all(c("IS_DELAYED_15","OP_CARRIER","ORIGIN") %in% names(flights))) {
 
 # 6. Dimension reduction and clustering
 
+Before we can explore the PCA approach, we first have to anaylse which
+variables are suitable for a PCA and which representation we choose. In
+appendix X we compose a feature PCA-ready set. This in order to have
+numerical variables which together ma contain a certain latent structure
+without putting in target or post-event information. In this way the PCA
+performs the best. We do not use PCA "because we have to, but because we
+want to solve our business problem at the end. In this case the PCA have
+three possible goals: 1. discover structyre in operational features (for
+exmaple are schedulded departure time, rute distnace, elapsed time,
+month, weekday, airport, pressure indicators related?) e.g. is there a
+compact pattern underneath? 2. Reduce redunancy, for example: some time
+variables or route/operational variables contain partly overlapping
+information. PCA can summarize that overlap in fewer components. 3.
+create more compact input for a model, if we later create a lot of
+numerical derivative features and which are strongly related then PCA
+can help to reduce it to a smaller number of components. Our first
+concpetual quesgion here is: Do we actually have a numerical feature
+space in which PCA makes sense?
+
 ## 6.1 PCA
 
 ## 6.2 Correlation heatmap
 
-# 7. Modelling 
+# 7. Modelling
 
 ## 7.1 Model 1: C5.0 decision tree
 
+```{r}
+flights_model <- flights_clean
+
+flights_model$IS_DELAYED_15 <- ifelse(flights_model$ARR_DELAY >= 15, "Delayed", "On_time")
+flights_model$IS_DELAYED_15 <- factor(flights_model$IS_DELAYED_15)
+
+flights_model$DEP_HOUR <- as.numeric(format(flights_model$CRS_DEP_TIME, "%H")) +
+                          as.numeric(format(flights_model$CRS_DEP_TIME, "%M")) / 60
+
+flights_model$ARR_HOUR <- as.numeric(format(flights_model$CRS_ARR_TIME, "%H")) +
+                          as.numeric(format(flights_model$CRS_ARR_TIME, "%M")) / 60
+
+factor_vars <- c("OP_CARRIER", "ORIGIN", "DEST", "WEEKDAY")
+
+for (v in factor_vars) {
+  if (v %in% names(flights_model)) {
+    flights_model[[v]] <- factor(flights_model[[v]])
+  }
+}
+
+model_vars <- c(
+  "IS_DELAYED_15",
+  "DISTANCE",
+  "CRS_ELAPSED_TIME",
+  "DEP_HOUR",
+  "ARR_HOUR",
+  "MONTH",
+  "WEEKDAY",
+  "OP_CARRIER",
+  "ORIGIN",
+  "DEST"
+)
+
+model_df <- flights_model[, model_vars]
+model_df <- na.omit(model_df)
+
+str(model_df)
+summary(model_df$IS_DELAYED_15)
+
+set.seed(46748717)
+
+N_MODEL <- min(300000, nrow(model_df))   # adjust if needed
+idx <- sample(seq_len(nrow(model_df)), N_MODEL)
+
+model_df_small <- model_df[idx, ]
+dim(model_df_small)
+
+set.seed(46748717)
+
+split <- rsample::initial_split(model_df_small, prop = 0.7)
+training <- training(split)
+testing  <- testing(split)
+
+dim(training)
+dim(testing)
+
+model_tree <- C50::C5.0(IS_DELAYED_15 ~ ., data = training)
+
+summary(model_tree)
+
+pred_test <- predict(model_tree, testing)
+
+gmodels::CrossTable(
+  testing$IS_DELAYED_15,
+  pred_test,
+  prop.chisq = FALSE,
+  prop.c = FALSE,
+  prop.r = FALSE,
+  prop.t = FALSE,
+  dnn = c("Actual delay status", "Predicted delay status")
+)
+
+#Accuracy 
+mean(pred_test == testing$IS_DELAYED_15)
+
+actual <- testing$IS_DELAYED_15
+pred   <- pred_test
+
+tp <- sum(actual == "Delayed" & pred == "Delayed")
+tn <- sum(actual == "On_time" & pred == "On_time")
+fp <- sum(actual == "On_time" & pred == "Delayed")
+fn <- sum(actual == "Delayed" & pred == "On_time")
+
+accuracy  <- (tp + tn) / (tp + tn + fp + fn)
+recall    <- tp / (tp + fn)
+precision <- tp / (tp + fp)
+
+data.frame(
+  accuracy = accuracy,
+  recall_delayed = recall,
+  precision_delayed = precision,
+  tp = tp, tn = tn, fp = fp, fn = fn
+)
+```
+
 ## 7.2 Model 2: Random Forest
 
-## 7.3 Comparison 
+## 7.3 Comparison
 
 # 8. Conclusions and recommendations
 
 ## 8.1 Operational recommendations
 
 ## 8.2 Limitations & next steps
+
+# 9. Appendix
+
+## 9.1 Variable screening for PCA
+
+```         
+For our project, PCA only makes sense on variables that meet a few conditions.  A variable is especially interesting for PCA in your setting if it:  is available before departure, contains no leakage, is numerical, or can be logically made numerical,  can contribute something substantive to a joint structure, is not simply the outcome itself or a post-event consequence.  So this is not a purely technical selection, but above all an analytical selection. Because the business question is formulated in a sense that we may only rely on pre-departutre information. So everything that is newly known: during flight, after departure, after arrival, or after the delay has already occurred, should be excluded for PCA in this setting. That is the most important criterion.
+```
+
+```{r}
+#Omdat we nog niet echt feature ready data hebben om de PCA uit te voeren, converteren we even de data in useable data zodat we die verder kunnen gebruiken in de PCA
+
+pca_screen <- data.frame(
+  variable = c(
+    "FL_DATE", "OP_CARRIER", "OP_CARRIER_FL_NUM",
+    "ORIGIN", "DEST", "DISTANCE",
+    "CRS_DEP_TIME", "CRS_ARR_TIME", "CRS_ELAPSED_TIME",
+    "DEP_TIME", "ARR_TIME", "DEP_DELAY", "ARR_DELAY", "AIR_TIME",
+    "TAXI_OUT", "TAXI_IN", "WHEELS_OFF", "WHEELS_ON",
+    "CANCELLED", "DIVERTED",
+    "CARRIER_DELAY", "WEATHER_DELAY", "NAS_DELAY", "SECURITY_DELAY", "LATE_AIRCRAFT_DELAY",
+    "IS_DELAYED", "WEEKDAY", "MONTH"
+  ),
+  type = c(
+    "date", "categorical", "identifier",
+    "categorical", "categorical", "numeric",
+    "time", "time", "numeric",
+    "time_actual", "time_actual", "post_event", "post_event", "post_event",
+    "post_event", "post_event", "post_event", "post_event",
+    "status", "status",
+    "post_event_cause", "post_event_cause", "post_event_cause", "post_event_cause", "post_event_cause",
+    "target", "categorical", "calendar_numeric"
+  ),
+  pre_departure_available = c(
+    TRUE, TRUE, TRUE,
+    TRUE, TRUE, TRUE,
+    TRUE, TRUE, TRUE,
+    FALSE, FALSE, FALSE, FALSE, FALSE,
+    FALSE, FALSE, FALSE, FALSE,
+    FALSE, FALSE,
+    FALSE, FALSE, FALSE, FALSE, FALSE,
+    FALSE, TRUE, TRUE
+  ),
+  pca_label = c(
+    "watchlist", "watchlist", "ignore",
+    "watchlist", "watchlist", "usable",
+    "watchlist", "watchlist", "usable",
+    "ignore", "ignore", "ignore", "ignore", "ignore",
+    "ignore", "ignore", "ignore", "ignore",
+    "ignore", "ignore",
+    "ignore", "ignore", "ignore", "ignore", "ignore",
+    "ignore", "watchlist", "watchlist"
+  ),
+  reason = c(
+    "Raw date not suitable; use derived calendar features instead",
+    "Raw carrier code not numeric; maybe useful through historical aggregates",
+    "Identifier-like variable; no meaningful numeric PCA scale",
+    "Raw airport code not numeric; maybe useful through aggregates",
+    "Raw airport code not numeric; maybe useful through aggregates",
+    "Numeric, pre-departure, operationally meaningful",
+    "Raw clock time is cyclical; re-encode before PCA",
+    "Raw clock time is cyclical; re-encode before PCA",
+    "Numeric, pre-departure, operationally meaningful",
+    "Actual departure time is post-event",
+    "Actual arrival time is post-event",
+    "Realized departure delay is post-event / leakage",
+    "Realized arrival delay is post-event / target-adjacent",
+    "Realized air time is post-event",
+    "Realized taxi-out is post-event",
+    "Realized taxi-in is post-event",
+    "Realized takeoff time is post-event",
+    "Realized landing time is post-event",
+    "Outcome/status variable, not predictor",
+    "Outcome/status variable, not predictor",
+    "Delay cause recorded after event",
+    "Delay cause recorded after event",
+    "Delay cause recorded after event",
+    "Delay cause recorded after event",
+    "Delay cause recorded after event",
+    "Target variable, must not enter PCA",
+    "Useful only after encoding / transformation",
+    "Potentially useful, but cyclical/calendar representation preferred"
+  ),
+  stringsAsFactors = FALSE
+)
+
+
+# =========================
+# Variables to inspect visually for PCA screening
+# =========================
+
+screen_vars <- subset(pca_screen, pca_label %in% c("usable", "watchlist"))$variable
+screen_vars <- intersect(screen_vars, names(flights_clean))
+
+screen_vars
+
+# =========================
+# Appendix plotting function
+# =========================
+
+plot_screen_variable <- function(df, varname, max_levels = 20) {
+  
+  x <- df[[varname]]
+  
+  # Datetime / POSIXct
+  if (inherits(x, "POSIXct") || inherits(x, "Date")) {
+    message("Variable ", varname, " is date/datetime. Plot derived summary instead.")
+    
+    # For Date: show counts over time if not too many dates
+    tmp <- data.frame(value = x)
+    p <- ggplot(tmp, aes(x = value)) +
+      geom_bar() +
+      labs(title = paste("Distribution of", varname),
+           x = varname, y = "Count")
+    print(p)
+    
+  # Numeric / integer / logical
+  } else if (is.numeric(x) || is.integer(x)) {
+    tmp <- data.frame(value = x)
+    p <- ggplot(tmp, aes(x = value)) +
+      geom_histogram(bins = 40, fill = "steelblue", color = "white") +
+      labs(title = paste("Histogram of", varname),
+           x = varname, y = "Count")
+    print(p)
+    
+    p2 <- ggplot(tmp, aes(y = value)) +
+      geom_boxplot(fill = "tomato", alpha = 0.7) +
+      labs(title = paste("Boxplot of", varname),
+           y = varname, x = "")
+    print(p2)
+    
+  # Character / factor
+  } else {
+    tab <- sort(table(x), decreasing = TRUE)
+    tab <- head(tab, max_levels)
+    tmp <- data.frame(level = names(tab), n = as.integer(tab))
+    
+    p <- ggplot(tmp, aes(x = reorder(level, n), y = n)) +
+      geom_col(fill = "darkseagreen4") +
+      coord_flip() +
+      labs(title = paste("Top categories of", varname),
+           x = varname, y = "Count")
+    print(p)
+  }
+}
+
+# =========================
+# Loop through variables for appendix plots
+# =========================
+
+for (v in screen_vars) {
+  cat("\n\n###", v, "\n")
+  plot_screen_variable(flights_clean, v)
+}
+
+# =========================
+# Add empirical data checks to screening table
+# =========================
+
+pca_screen$exists_in_data <- pca_screen$variable %in% names(flights_clean)
+
+pca_screen$n_missing <- sapply(pca_screen$variable, function(v) {
+  if (v %in% names(flights_clean)) sum(is.na(flights_clean[[v]])) else NA
+})
+
+pca_screen$pct_missing <- sapply(pca_screen$variable, function(v) {
+  if (v %in% names(flights_clean)) round(100 * mean(is.na(flights_clean[[v]])), 2) else NA
+})
+
+pca_screen$n_distinct <- sapply(pca_screen$variable, function(v) {
+  if (v %in% names(flights_clean)) length(unique(flights_clean[[v]])) else NA
+})
+
+pca_screen$is_numeric_in_data <- sapply(pca_screen$variable, function(v) {
+  if (v %in% names(flights_clean)) is.numeric(flights_clean[[v]]) else NA
+})
+
+pca_screen
+
+# =========================
+# Feature engineering for PCA-ready variables
+# =========================
+
+pca_df <- flights_clean
+# Departure hour and arrival hour from scheduled times
+pca_df$DEP_HOUR <- as.numeric(format(pca_df$CRS_DEP_TIME, "%H")) +
+                   as.numeric(format(pca_df$CRS_DEP_TIME, "%M")) / 60
+
+pca_df$ARR_HOUR <- as.numeric(format(pca_df$CRS_ARR_TIME, "%H")) +
+                   as.numeric(format(pca_df$CRS_ARR_TIME, "%M")) / 60
+
+# Cyclical encoding for departure hour and arrival hour
+pca_df$DEP_HOUR_SIN <- sin(2 * pi * pca_df$DEP_HOUR / 24)
+pca_df$DEP_HOUR_COS <- cos(2 * pi * pca_df$DEP_HOUR / 24)
+
+pca_df$ARR_HOUR_SIN <- sin(2 * pi * pca_df$ARR_HOUR / 24)
+pca_df$ARR_HOUR_COS <- cos(2 * pi * pca_df$ARR_HOUR / 24)
+
+# Cyclical encoding for month
+#pca_df$MONTH_SIN <- sin(2 * pi * pca_df$MONTH / 12)
+#pca_df$MONTH_COS <- cos(2 * pi * pca_df$MONTH / 12)
+
+# Ensure weekday is ordered properly
+weekday_levels <- c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+
+pca_df$WEEKDAY_F <- factor(pca_df$WEEKDAY, levels = weekday_levels, ordered = TRUE)
+pca_df$WEEKDAY_NUM <- as.numeric(pca_df$WEEKDAY_F)
+
+# Cyclical encoding for weekday
+pca_df$WEEKDAY_SIN <- sin(2 * pi * pca_df$WEEKDAY_NUM / 7)
+pca_df$WEEKDAY_COS <- cos(2 * pi * pca_df$WEEKDAY_NUM / 7)
+
+# =========================
+# First PCA-ready feature set
+# =========================
+
+pca_vars <- c(
+  "DISTANCE",
+  "CRS_ELAPSED_TIME",
+  "DEP_HOUR_SIN", "DEP_HOUR_COS",
+  "ARR_HOUR_SIN", "ARR_HOUR_COS",
+  "MONTH_SIN", "MONTH_COS",
+  "WEEKDAY_SIN", "WEEKDAY_COS"
+)
+
+pca_input <- pca_df[, pca_vars]
+
+pca_input_complete <- na.omit(pca_input)
+
+dim(pca_input_complete)
+summary(pca_input_complete)
+
+
+# =========================
+# Histograms for engineered PCA features
+# =========================
+
+for (v in names(pca_input_complete)) {
+  tmp <- data.frame(value = pca_input_complete[[v]])
+  
+  p <- ggplot(tmp, aes(x = value)) +
+    geom_histogram(bins = 40, fill = "steelblue", color = "white") +
+    labs(title = paste("Histogram of engineered feature:", v),
+         x = v, y = "Count")
+  print(p)
+}
+
+# =========================
+# Run PCA
+# =========================
+
+pca_model <- prcomp(pca_input_complete, center = TRUE, scale. = TRUE)
+
+summary(pca_model)
+
+# =========================
+# Explained variance
+# =========================
+
+pca_var_explained <- (pca_model$sdev)^2 / sum((pca_model$sdev)^2)
+pca_var_table <- data.frame(
+  PC = paste0("PC", seq_along(pca_var_explained)),
+  Variance_Explained = pca_var_explained,
+  Cumulative = cumsum(pca_var_explained)
+)
+
+pca_var_table
+# Scree plot
+ggplot(pca_var_table, aes(x = PC, y = Variance_Explained)) +
+  geom_col(fill = "steelblue") +
+  labs(title = "Scree plot", x = "Principal Component", y = "Proportion of variance explained")
+# Cumulative explained variance
+ggplot(pca_var_table, aes(x = seq_along(Cumulative), y = Cumulative)) +
+  geom_line() +
+  geom_point() +
+  scale_x_continuous(breaks = seq_along(pca_var_table$PC), labels = pca_var_table$PC) +
+  labs(title = "Cumulative explained variance",
+       x = "Principal Component", y = "Cumulative variance explained")
+
+# =========================
+# PCA loadings
+# =========================
+
+loadings <- pca_model$rotation
+round(loadings, 3)
+round(loadings[, 1:4], 3)
+
+# =========================
+# PCA scores
+# =========================
+
+scores <- as.data.frame(pca_model$x)
+head(scores)
+ggplot(scores, aes(x = PC1, y = PC2)) +
+  geom_point(alpha = 0.15) +
+  labs(title = "PCA plot: observations in PC1-PC2 space")
+
+
+# =========================
+# Add target back only for interpretation
+# =========================
+
+pca_complete_rows <- complete.cases(pca_input)
+scores$IS_DELAYED <- pca_df$IS_DELAYED[pca_complete_rows]
+ggplot(scores, aes(x = PC1, y = PC2, color = IS_DELAYED)) +
+  geom_point(alpha = 0.2) +
+  labs(title = "PCA plot colored by delay status")
+
+# =========================
+# Top absolute loadings per component
+# =========================
+
+top_loadings <- function(pca_model, pc = 1, n = 5) {
+  ld <- pca_model$rotation[, pc]
+  out <- data.frame(
+    variable = names(ld),
+    loading = ld,
+    abs_loading = abs(ld)
+  )
+  out <- out[order(-out$abs_loading), ]
+  head(out, n)
+}
+
+top_loadings(pca_model, pc = 1, n = 10)
+top_loadings(pca_model, pc = 2, n = 10)
+top_loadings(pca_model, pc = 3, n = 10)
+```
