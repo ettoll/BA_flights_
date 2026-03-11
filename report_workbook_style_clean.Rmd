@@ -135,6 +135,8 @@ local({r <- getOption("repos")
 r["CRAN"] <- "https://cran.rstudio.com/"
 options(repos = r)})
 
+N_READ <- -1
+
 packages <- c("ggplot2", "Hmisc", "rsample", "gmodels", "C50", "randomForest",
   "factoextra", "lattice", "reshape2"
 )
@@ -171,7 +173,6 @@ Now we read our actual data and print the dimensions and columns names
 to get a first clue of what kind of data were dealing with.
 
 ```{r read_data}
-N_READ <- -1
 dim(flights)
 names(flights)
 ```
@@ -281,6 +282,62 @@ is also workable if remarked. Let's further explore the data.
 ```{r explore_basic}
 str(flights)
 ```
+
+To align this notebook more closely with the workbook on exploration and
+preparation, we explicitly separate three questions:
+
+-   What is the type and scale of each variable?
+
+-   Which variables show data quality issues or unusual structure?
+
+-   Which of those issues require action before modelling?
+
+The next sections answer these questions step by step. We focus on
+variables that are most relevant for a pre-departure delay analysis,
+rather than producing every possible plot for all 28 columns.
+
+```{r selected_numeric_diagnostics}
+numeric_vars <- c("DISTANCE", "CRS_ELAPSED_TIME", "DEP_DELAY", "ARR_DELAY")
+numeric_vars <- intersect(numeric_vars, names(flights))
+
+numeric_diagnostics <- data.frame(
+  variable = numeric_vars,
+  mean = sapply(flights[numeric_vars], function(x) round(mean(x, na.rm = TRUE), 2)),
+  median = sapply(flights[numeric_vars], function(x) round(median(x, na.rm = TRUE), 2)),
+  sd = sapply(flights[numeric_vars], function(x) round(sd(x, na.rm = TRUE), 2)),
+  min = sapply(flights[numeric_vars], function(x) round(min(x, na.rm = TRUE), 2)),
+  max = sapply(flights[numeric_vars], function(x) round(max(x, na.rm = TRUE), 2))
+)
+
+numeric_diagnostics
+```
+
+This table functions as our first univariate numeric exploration step.
+In workbook terms, we compare central tendency and spread before we look
+at plots. The main thing to watch for is a large gap between mean and
+median, or an extreme maximum relative to the bulk of the data, because
+that signals skewness or potentially influential observations.
+
+```{r selected_numeric_plots}
+set.seed(46748717)
+idx_diag <- sample(seq_len(nrow(flights)), min(200000, nrow(flights)))
+flights_diag <- flights[idx_diag, ]
+
+par(mfrow = c(2, 2))
+hist(flights_diag$DISTANCE, breaks = 40, main = "Distance", xlab = "Miles", col = "grey80")
+boxplot(flights_diag$DISTANCE, horizontal = TRUE, main = "Distance boxplot", col = "grey80")
+hist(flights_diag$ARR_DELAY, breaks = 40, main = "Arrival delay", xlab = "Minutes", col = "grey80")
+boxplot(flights_diag$ARR_DELAY, horizontal = TRUE, main = "Arrival delay boxplot", col = "grey80")
+par(mfrow = c(1, 1))
+```
+
+We keep this visual check selective. `DISTANCE` is a core pre-departure
+predictor and should be inspected as a regular numeric feature.
+`ARR_DELAY` is not a predictor in the pre-departure setting, but it is
+the outcome we eventually simplify into a binary target. Inspecting its
+raw distribution helps justify why a classification target is more
+practical here than modelling raw delay minutes directly: the delay
+distribution is highly skewed and dominated by a long right tail.
 
 ## 4.2 Missing values overview and discussion
 
@@ -414,6 +471,23 @@ cat("ARR_DELAY NA but not CRS_ARR_TIME==ARR_TIME:", sum(arr_na))
 
 Now we have analysed all NA values and begin to clean our data properly.
 
+The workbook logic is visible here: we do not immediately delete all
+rows with missing values, because in operational data missingness is
+often informative. We first distinguish between:
+
+-   structurally missing values, for example delay causes that are only
+    recorded after substantial delays;
+
+-   outcome-related missing values, for example flights that were
+    cancelled or diverted and therefore have no realised arrival
+    metrics;
+
+-   repairable missing values, for example cases where scheduled time
+    and realised time are equal and the delay can logically be set to 0.
+
+This distinction matters because it prevents us from throwing away valid
+flights too early and helps us explain each cleaning choice.
+
 ## 4.3 Cleaning and datatypes
 
 First, we do some final sanity checks for the values for variables. We
@@ -538,10 +612,111 @@ add a column in which we see if a plane was significantly delayed. We
 also add a `MONTH` and `WEEKDAY` column.
 
 ```{r}
-flights_clean$IS_DELAYED <- ifelse(flights_clean$DEP_DELAY > 15, TRUE, FALSE) 
+flights_clean$IS_DELAYED <- ifelse(flights_clean$ARR_DELAY >= 15, TRUE, FALSE)
 flights_clean$WEEKDAY <- weekdays(flights_clean$FL_DATE)
 flights_clean$MONTH <- as.integer(format(flights_clean$FL_DATE, "%m"))
+flights_clean$SCHED_DEP_HOUR <- as.numeric(format(flights_clean$CRS_DEP_TIME, "%H")) +
+  as.numeric(format(flights_clean$CRS_DEP_TIME, "%M")) / 60
+flights_clean$SCHED_ARR_HOUR <- as.numeric(format(flights_clean$CRS_ARR_TIME, "%H")) +
+  as.numeric(format(flights_clean$CRS_ARR_TIME, "%M")) / 60
 ```
+
+The target is now based on `ARR_DELAY >= 15`. This is the cleanest
+definition for the business question because it captures whether the
+flight ultimately arrived with a meaningful disruption. We remove
+cancelled and diverted flights before defining this target, so the class
+labels are only assigned to completed flights.
+
+```{r cleaning_summary}
+cleaning_summary <- data.frame(
+  step = c(
+    "Original rows",
+    "After removing cancelled/diverted flights",
+    "Rows with defined delay target"
+  ),
+  n_rows = c(
+    nrow(flights),
+    nrow(flights_clean),
+    sum(!is.na(flights_clean$IS_DELAYED))
+  )
+)
+
+cleaning_summary$share_of_original <- round(
+  100 * cleaning_summary$n_rows / cleaning_summary$n_rows[1], 2
+)
+
+cleaning_summary
+```
+
+The table above makes the cleaning impact transparent. This is useful in
+the workbook context because it shows that our later analysis is based
+on a clearly defined subset of operationally comparable flights, rather
+than on an unclear mix of completed, cancelled and diverted flights.
+
+## 4.4 Exploration log and preparation decisions
+
+The workbook stresses that exploration should lead to explicit
+preparation choices. We therefore summarize our main findings in a short
+exploration log.
+
+```{r exploration_log}
+exploration_log <- data.frame(
+  variable_or_group = c(
+    "Unnamed columns",
+    "Cancelled/diverted flights",
+    "Departure/arrival times",
+    "Delay fields",
+    "Carrier/origin categories",
+    "Distance and elapsed time"
+  ),
+  observation = c(
+    "Unnamed column contains only missing values",
+    "Operational outcome fields are often missing for these flights",
+    "Stored as HHMM integers rather than usable times",
+    "Some zero-delay cases stored as NA when scheduled and actual times match",
+    "High-cardinality categories with uneven group sizes",
+    "Numeric variables look plausible but can contain influential extremes"
+  ),
+  action = c(
+    "Drop",
+    "Exclude from completed-flight modelling sample",
+    "Convert to POSIXct and derive scheduled hour features",
+    "Impute those cases with 0 when the equality check supports it",
+    "Use volume filters in visual ranking and factor encoding in models",
+    "Keep, but inspect visually and avoid unnecessary transformation unless analysis needs it"
+  ),
+  stringsAsFactors = FALSE
+)
+
+exploration_log
+```
+
+```{r duplicate_check}
+dup_key <- c("FL_DATE", "OP_CARRIER", "OP_CARRIER_FL_NUM", "ORIGIN", "DEST", "CRS_DEP_TIME")
+dup_key <- intersect(dup_key, names(flights_clean))
+
+duplicate_rows <- duplicated(flights_clean[, dup_key])
+
+data.frame(
+  key_columns_checked = paste(dup_key, collapse = ", "),
+  n_duplicate_rows = sum(duplicate_rows),
+  pct_duplicate_rows = round(100 * mean(duplicate_rows), 4)
+)
+```
+
+This duplicate check follows the workbook logic that cleaning is not
+only about missing values. In this data set, the practical question is
+whether two rows appear to describe the same scheduled flight. If this
+count is small or zero, that supports the assumption that the unit of
+analysis is one row per flight. If it is not, the duplicates need manual
+inspection before modelling.
+
+Some workbook preparation steps are not needed here. Data integration is
+not relevant yet because we currently work with one main flight file.
+Likewise, we do not apply global standardization at this stage because
+our current models are tree-based and therefore do not require all
+predictors to be on the same scale. Where scaling does matter, such as
+in PCA, we explicitly do it there.
 
 # 5. Exploratory visualisation
 
@@ -559,7 +734,10 @@ are significantly delayed.
 
 ```{r}
 df_target <- data.frame(
-  class = factor(flights_clean$IS_DELAYED, levels = c(0,1), labels = c("On time", "Delayed (15 min)"))
+  class = factor(
+    ifelse(flights_clean$IS_DELAYED, "Delayed (15 min)", "On time"),
+    levels = c("On time", "Delayed (15 min)")
+  )
 )
 
 ggplot(df_target, aes(x = class)) +
@@ -567,6 +745,42 @@ ggplot(df_target, aes(x = class)) +
   labs(title = "Class distribution: delayed vs on-time", x = "", y = "amount of flights") +
   coord_flip()
 ```
+
+This class balance matters for the rest of the notebook. A delay rate of
+roughly 18% means the data is not perfectly balanced, but the delayed
+class is still common enough to model without the extreme rarity issues
+that would occur for cancellations.
+
+```{r numeric_vs_target_boxplots}
+set.seed(46748717)
+idx_box <- sample(seq_len(nrow(flights_clean)), min(150000, nrow(flights_clean)))
+flights_box <- flights_clean[idx_box, ]
+
+par(mfrow = c(1, 2))
+boxplot(SCHED_DEP_HOUR ~ IS_DELAYED,
+        data = flights_box,
+        outline = FALSE,
+        names = c("On time", "Delayed"),
+        main = "Scheduled departure hour by delay status",
+        ylab = "Scheduled departure hour",
+        col = c("grey80", "tomato"))
+
+boxplot(CRS_ELAPSED_TIME ~ IS_DELAYED,
+        data = flights_box,
+        outline = FALSE,
+        names = c("On time", "Delayed"),
+        main = "Scheduled elapsed time by delay status",
+        ylab = "Scheduled elapsed time (minutes)",
+        col = c("grey80", "tomato"))
+par(mfrow = c(1, 1))
+```
+
+This figure adds the workbook perspective of comparing a numerical
+variable against a categorical one. It helps us see whether delayed and
+on-time flights differ in their planned characteristics before we start
+modelling. We suppress plotted outlier points here because the sample is
+very large; otherwise the boxes become unreadable. The distribution
+itself remains visible through the median and spread.
 
 Here we plot the delay rate per month and the amount of flights per
 month. It is worth mentioning that the in the summer months the delay
@@ -610,8 +824,12 @@ or airplane that are maybe play ar ole in the explanination of the
 delays.
 
 ```{r}
+weekday_levels <- c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+
 df_wday_rate <- aggregate(IS_DELAYED ~ WEEKDAY, flights_clean, mean)
 names(df_wday_rate)[2] <- "delay_rate"
+df_wday_rate$WEEKDAY <- factor(df_wday_rate$WEEKDAY, levels = weekday_levels)
+df_wday_rate <- df_wday_rate[order(df_wday_rate$WEEKDAY), ]
 
 ggplot(df_wday_rate, aes(x = WEEKDAY, y = delay_rate)) +
   geom_col() +
@@ -623,17 +841,26 @@ ggplot(df_wday_rate, aes(x = WEEKDAY, y = delay_rate)) +
 Heat map: weekday x departure hour
 
 ```{r}
-df_hw <- aggregate(IS_DELAYED ~ WEEKDAY + CRS_DEP_TIME, flights_clean, mean)
+df_hw <- flights_clean[, c("WEEKDAY", "SCHED_DEP_HOUR", "IS_DELAYED")]
+df_hw$DEP_HOUR_BIN <- floor(df_hw$SCHED_DEP_HOUR)
+df_hw <- aggregate(IS_DELAYED ~ WEEKDAY + DEP_HOUR_BIN, df_hw, mean)
 names(df_hw)[3] <- "delay_rate"
+df_hw$WEEKDAY <- factor(df_hw$WEEKDAY, levels = weekday_levels)
 
-ggplot(df_hw, aes(x = CRS_DEP_TIME, y = WEEKDAY, fill = delay_rate)) +
-  geom_tile() +
+ggplot(df_hw, aes(x = DEP_HOUR_BIN, y = WEEKDAY, fill = delay_rate)) +
+  geom_tile(color = "white") +
   scale_x_continuous(breaks = seq(0, 23, 2)) +
-  scale_fill_gradient(labels = pct_label, limits = c(0, 1)) +
-  labs(title = "Heatmap delay rate: weekday × vertrekuur",
+  scale_fill_gradient(low = "white", high = "steelblue", labels = pct_label, limits = c(0, 0.4)) +
+  labs(title = "Delay rate by weekday and departure hour",
        x = "Planned departure hour", y = "Day of the week", fill = "Delay rate")
 
 ```
+
+This heatmap is more informative than the weekday bar chart alone,
+because average weekday effects can hide strong within-day patterns. If
+delay risk rises later in the day, that suggests network accumulation:
+once earlier flights run late, the rest of the day inherits part of that
+disruption.
 
 Delay rate per airplane. The first planes seem to be private jets.
 
@@ -659,6 +886,11 @@ ggplot(top_carriers, aes(x = reorder(OP_CARRIER, delay_rate), y = delay_rate)) +
   labs(title = "Delay rate (>=15m) per airline (top 10, min volume filter)",
        x = "Airplane", y = "Delay rate")
 ```
+
+We apply a minimum-volume filter before ranking carriers and airports.
+Without that filter, very small groups can appear extreme simply because
+they have only a handful of flights. For an operational interpretation,
+we prefer stable patterns over noisy ranking effects.
 
 Delay rate per airport
 
@@ -698,6 +930,11 @@ ggplot(origin_top50_vol, aes(x = n, y = delay_rate)) +
        x = "Aantal vluchten (log schaal)", y = "Delay rate")
 ```
 
+The scatterplot helps separate two different effects: size and risk. A
+high-volume airport with an above-average delay rate is operationally
+more important than a tiny airport with a volatile rate, because the
+large airport contributes more delayed flights in absolute numbers.
+
 Multivariate relations and representation choices for features. In other
 words distance and scheduled departure as risk factors
 
@@ -706,65 +943,603 @@ set.seed(46748717)
 N_VIS <- min(200000, nrow(flights_clean))
 idx_vis <- sample(seq_len(nrow(flights_clean)), N_VIS)
 flights_vis <- flights_clean[idx_vis, ]
-ggplot(flights_vis, aes(x = DISTANCE, y = IS_DELAYED)) +
-  stat_summary_bin(fun = mean, bins = 60, geom = "line") +
-  scale_y_continuous(labels = pct_label, limits = c(0, 1)) +
-  labs(title = "Delay risk vs distance (binned mean)", x = "Distance (miles)", y = "Delay risk")
 
-flights_vis <- flights_clean[idx_vis, ]
+distance_breaks <- pretty(flights_vis$DISTANCE, n = 12)
+flights_vis$DISTANCE_BIN <- cut(
+  flights_vis$DISTANCE,
+  breaks = unique(distance_breaks),
+  include.lowest = TRUE
+)
 
-ggplot(flights_vis, aes(x = CRS_DEP_TIME, y = IS_DELAYED)) +
-  stat_summary_bin(fun = mean, bins = 48, geom = "line") +
-  scale_y_continuous(labels = pct_label, limits = c(0, 1)) +
-  labs(title = "Delay risk vs planned departure time (minutes)", x = "CRS_DEP_TIME", y = "Delay risk")
+distance_risk <- aggregate(IS_DELAYED ~ DISTANCE_BIN, flights_vis, mean)
+distance_mid  <- aggregate(DISTANCE ~ DISTANCE_BIN, flights_vis, mean)
+distance_n    <- aggregate(IS_DELAYED ~ DISTANCE_BIN, flights_vis, length)
+
+names(distance_risk)[2] <- "delay_rate"
+names(distance_mid)[2]  <- "distance_mid"
+names(distance_n)[2]    <- "n"
+
+distance_risk <- merge(distance_risk, distance_mid, by = "DISTANCE_BIN")
+distance_risk <- merge(distance_risk, distance_n, by = "DISTANCE_BIN")
+distance_risk <- subset(distance_risk, n >= 100)
+distance_risk <- distance_risk[order(distance_risk$distance_mid), ]
+
+print(
+  ggplot(distance_risk, aes(x = distance_mid, y = delay_rate)) +
+    geom_line() +
+    geom_point() +
+    scale_y_continuous(labels = pct_label, limits = c(0, 1)) +
+    labs(title = "Delay risk vs distance",
+         x = "Distance (miles)", y = "Delay risk")
+)
+
+flights_vis$DEP_HOUR_BIN <- floor(flights_vis$SCHED_DEP_HOUR)
+
+hour_risk <- aggregate(IS_DELAYED ~ DEP_HOUR_BIN, flights_vis, mean)
+hour_n    <- aggregate(IS_DELAYED ~ DEP_HOUR_BIN, flights_vis, length)
+
+names(hour_risk)[2] <- "delay_rate"
+names(hour_n)[2]    <- "n"
+
+hour_risk <- merge(hour_risk, hour_n, by = "DEP_HOUR_BIN")
+hour_risk <- subset(hour_risk, n >= 100)
+hour_risk <- hour_risk[order(hour_risk$DEP_HOUR_BIN), ]
+
+print(
+  ggplot(hour_risk, aes(x = DEP_HOUR_BIN, y = delay_rate)) +
+    geom_line() +
+    geom_point() +
+    scale_x_continuous(breaks = 0:23) +
+    scale_y_continuous(labels = pct_label, limits = c(0, 1)) +
+    labs(title = "Delay risk vs planned departure time",
+         x = "Scheduled departure hour", y = "Delay risk")
+)
 ```
 
-```{r eda_airline_airport}
-# Filter to flights where delay target is defined
-if (all(c("IS_DELAYED_15","OP_CARRIER","ORIGIN") %in% names(flights))) {
-  flights_clean <- flights[!is.na(flights$IS_DELAYED_15), ]
+The two binned plots above are exploratory rather than causal. They help
+us decide whether variables deserve a place in later models and how they
+should be represented. In particular, scheduled departure time clearly
+behaves as a continuous time-of-day feature and is therefore better used
+as an engineered hour variable than as a raw HHMM code.
 
-  airline_summary <- aggregate(IS_DELAYED_15 ~ OP_CARRIER, flights_clean,
-                               function(x) mean(x, na.rm = TRUE))
-  airline_summary <- airline_summary[order(-airline_summary$IS_DELAYED_15), ]
+```{r route_risk_summary}
+route_summary <- aggregate(IS_DELAYED ~ ORIGIN + DEST, flights_clean, mean)
+route_n <- aggregate(IS_DELAYED ~ ORIGIN + DEST, flights_clean, length)
+names(route_summary)[3] <- "delay_rate"
+names(route_n)[3] <- "n"
 
-  ggplot(airline_summary[1:10, ],
-         aes(x = reorder(OP_CARRIER, IS_DELAYED_15), y = IS_DELAYED_15)) +
-    geom_col() +
-    coord_flip() +
-    labs(title = "Delay rate (>=15 min) per airline (top 10)",
-         x = "Airline", y = "Delay rate")
-}
+route_summary <- merge(route_summary, route_n, by = c("ORIGIN", "DEST"))
+route_summary <- subset(route_summary, n >= 3000)
+route_summary <- route_summary[order(-route_summary$delay_rate), ]
+
+head(route_summary, 10)
 ```
+
+This extra route table adds one useful level of analysis beyond airline
+and airport summaries. It helps us see whether elevated delay risk is
+mainly tied to specific airports in general, or to specific airport-pair
+combinations that may reflect congestion patterns, geography or network
+timing.
 
 # 6. Dimension reduction and clustering
 
-Before we can explore the PCA approach, we first have to anaylse which
-variables are suitable for a PCA and which representation we choose. In
-appendix X we compose a feature PCA-ready set. This in order to have
-numerical variables which together ma contain a certain latent structure
-without putting in target or post-event information. In this way the PCA
-performs the best. We do not use PCA "because we have to, but because we
-want to solve our business problem at the end. In this case the PCA have
-three possible goals: 1. discover structyre in operational features (for
-exmaple are schedulded departure time, rute distnace, elapsed time,
-month, weekday, airport, pressure indicators related?) e.g. is there a
-compact pattern underneath? 2. Reduce redunancy, for example: some time
-variables or route/operational variables contain partly overlapping
-information. PCA can summarize that overlap in fewer components. 3.
-create more compact input for a model, if we later create a lot of
-numerical derivative features and which are strongly related then PCA
-can help to reduce it to a smaller number of components. Our first
-concpetual quesgion here is: Do we actually have a numerical feature
-space in which PCA makes sense?
+PCA and clustering are exploratory tools, not mandatory steps. We only
+use them if we can define a coherent pre-departure feature space. For
+our flight data, this means that the representation may contain only
+variables that are known before departure and that behave meaningfully
+under variance- and distance-based methods.
+
+This matters because PCA and clustering are much more sensitive to
+representation choices than our tree-based predictive models. If we feed
+them raw clock times, high-cardinality labels, or post-event variables,
+the output will mostly reflect encoding artifacts or leakage rather than
+useful operational structure.
 
 ## 6.1 PCA
 
+PCA is included here as an exploratory tool, not as the main modelling
+goal. The first question is therefore not "how many components do we
+get?", but "which variables deserve to define the PCA/clustering
+representation at all?"
+
+```{r pca_cluster_screening}
+structure_screen <- data.frame(
+  variable = c(
+    "FL_DATE",
+    "OP_CARRIER",
+    "OP_CARRIER_FL_NUM",
+    "ORIGIN",
+    "DEST",
+    "DISTANCE",
+    "CRS_DEP_TIME",
+    "CRS_ARR_TIME",
+    "CRS_ELAPSED_TIME",
+    "DEP_TIME / ARR_TIME / WHEELS_*",
+    "DEP_DELAY / ARR_DELAY",
+    "Delay-cause columns",
+    "CANCELLED / DIVERTED",
+    "MONTH",
+    "WEEKDAY"
+  ),
+  pca_role = c(
+    "Transform",
+    "Post hoc only",
+    "Exclude",
+    "Post hoc only",
+    "Post hoc only",
+    "Keep",
+    "Transform",
+    "Transform",
+    "Keep",
+    "Exclude",
+    "Exclude",
+    "Exclude",
+    "Exclude",
+    "Transform",
+    "Transform"
+  ),
+  clustering_role = c(
+    "Transform",
+    "Post hoc only",
+    "Exclude",
+    "Post hoc only",
+    "Post hoc only",
+    "Keep",
+    "Transform",
+    "Transform",
+    "Watch for redundancy",
+    "Exclude",
+    "Exclude",
+    "Exclude",
+    "Exclude",
+    "Transform",
+    "Transform"
+  ),
+  representation = c(
+    "Do not use raw date; derive month/weekday information instead",
+    "No dummy expansion in unsupervised step",
+    "Identifier-like flight number; not analytically meaningful",
+    "Retain for post hoc interpretation, not as dummy set",
+    "Retain for post hoc interpretation, not as dummy set",
+    "Use as numeric route-length feature",
+    "Convert to cyclical sin/cos features",
+    "Convert to cyclical sin/cos features",
+    "Use as numeric schedule-length feature",
+    "Known only after departure/arrival",
+    "Leakage / target-adjacent outcome information",
+    "Recorded after the event and therefore leakage",
+    "Used only as sample filter, not as features",
+    "Convert to cyclical sin/cos features",
+    "Represent coarsely as weekend dummy"
+  ),
+  reason = c(
+    "Raw dates create arbitrary scale differences",
+    "One-hot encoding carriers would add dimensions and dominate structure",
+    "Mostly identifies a flight record rather than a latent trait",
+    "Airport dummies would mainly recover airport labels rather than shared structure",
+    "Airport dummies would mainly recover airport labels rather than shared structure",
+    "Operationally meaningful and known before departure",
+    "Raw HHMM values are not valid linear distances",
+    "Raw HHMM values are not valid linear distances",
+    "Operationally meaningful and known before departure",
+    "Post-event information must be excluded",
+    "Would force PCA/clustering to recover realised delay instead of latent structure",
+    "Pure leakage for pre-departure analysis",
+    "These variables already define which rows remain in the analysis",
+    "Month is cyclical rather than linear",
+    "A low-dimensional weekend indicator is preferable to seven weekday dummies"
+  ),
+  stringsAsFactors = FALSE
+)
+
+structure_screen
+```
+
+The screening table leads to two important decisions. First, raw
+categorical labels such as carrier and airport are not used to define
+the PCA or clustering space, because one-hot encoding them would create
+many sparse dimensions and make the analysis mostly recover those labels
+themselves. Second, schedule variables must be re-encoded before use:
+clock time and calendar position are cyclical, not linear.
+
+```{r pca_cluster_preparation}
+flights_structure <- flights_clean
+
+flights_structure$DEP_HOUR_SIN <- sin(2 * pi * flights_structure$SCHED_DEP_HOUR / 24)
+flights_structure$DEP_HOUR_COS <- cos(2 * pi * flights_structure$SCHED_DEP_HOUR / 24)
+flights_structure$ARR_HOUR_SIN <- sin(2 * pi * flights_structure$SCHED_ARR_HOUR / 24)
+flights_structure$ARR_HOUR_COS <- cos(2 * pi * flights_structure$SCHED_ARR_HOUR / 24)
+flights_structure$MONTH_SIN <- sin(2 * pi * flights_structure$MONTH / 12)
+flights_structure$MONTH_COS <- cos(2 * pi * flights_structure$MONTH / 12)
+flights_structure$IS_WEEKEND <- ifelse(
+  flights_structure$WEEKDAY %in% c("Saturday", "Sunday"), 1, 0
+)
+
+prep_decisions <- data.frame(
+  feature = c(
+    "DISTANCE",
+    "CRS_ELAPSED_TIME",
+    "SCHED_DEP_HOUR",
+    "SCHED_ARR_HOUR",
+    "MONTH",
+    "WEEKDAY"
+  ),
+  preparation = c(
+    "Z-score scaling only",
+    "Z-score scaling only",
+    "Cyclical encoding (sin/cos) + scaling",
+    "Cyclical encoding (sin/cos) + scaling",
+    "Cyclical encoding (sin/cos) + scaling",
+    "Weekend dummy + scaling"
+  ),
+  rationale = c(
+    "Meaningful numeric feature; no separate normalization needed once standardized",
+    "Meaningful numeric feature; retained first to inspect overlap with distance",
+    "Raw HHMM would create false distances, so cyclical encoding is required",
+    "Raw HHMM would create false distances, so cyclical encoding is required",
+    "Month 12 is adjacent to month 1, so linear coding is inappropriate",
+    "A single dummy keeps dimensionality low and captures the main calendar contrast"
+  ),
+  stringsAsFactors = FALSE
+)
+
+prep_decisions
+```
+
+We deliberately use Z-score standardization rather than min-max
+normalization. PCA is driven by variance and clustering here is based on
+Euclidean distance, so it is more natural to put all features on a
+common mean-0, sd-1 scale. We also do **not** force a log transformation
+on `DISTANCE` or `CRS_ELAPSED_TIME`: these variables are already
+operationally interpretable, and we first want to see whether shared
+route structure appears without adding another transformation layer.
+
+```{r pca_cluster_feature_space}
+representation_vars <- c(
+  "DISTANCE",
+  "CRS_ELAPSED_TIME",
+  "DEP_HOUR_SIN", "DEP_HOUR_COS",
+  "ARR_HOUR_SIN", "ARR_HOUR_COS",
+  "MONTH_SIN", "MONTH_COS",
+  "IS_WEEKEND"
+)
+
+post_hoc_vars <- c("IS_DELAYED", "OP_CARRIER", "ORIGIN", "DEST")
+
+structure_df <- flights_structure[, c(representation_vars, post_hoc_vars)]
+structure_df <- na.omit(structure_df)
+
+set.seed(46748717)
+N_STRUCTURE <- min(50000, nrow(structure_df))
+idx_structure <- sample(seq_len(nrow(structure_df)), N_STRUCTURE)
+
+structure_sample <- structure_df[idx_structure, ]
+structure_z <- as.data.frame(scale(structure_sample[, representation_vars]))
+
+dim(structure_sample)
+summary(structure_z)
+```
+
 ## 6.2 Correlation heatmap
+
+```{r correlation_heatmap}
+cor_mat <- round(cor(structure_z), 2)
+cor_mat
+
+reshape2::melt(cor_mat) |>
+  ggplot(aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "firebrick", mid = "white", high = "steelblue", midpoint = 0) +
+  labs(title = "Correlation heatmap of PCA/clustering feature space",
+       x = "", y = "", fill = "Correlation") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r correlation_pairs}
+high_corr_idx <- which(abs(cor_mat) >= 0.75 & lower.tri(cor_mat), arr.ind = TRUE)
+
+if (nrow(high_corr_idx) == 0) {
+  high_corr_pairs <- data.frame(
+    variable_1 = character(),
+    variable_2 = character(),
+    correlation = numeric()
+  )
+} else {
+  high_corr_pairs <- data.frame(
+    variable_1 = rownames(cor_mat)[high_corr_idx[, 1]],
+    variable_2 = colnames(cor_mat)[high_corr_idx[, 2]],
+    correlation = cor_mat[high_corr_idx],
+    row.names = NULL
+  )
+}
+
+high_corr_pairs
+```
+
+The heatmap is our checkpoint before PCA and clustering. If almost all
+features were independent, PCA would add little value. If some pairs are
+very strongly correlated, clustering would also double-count the same
+underlying signal. In that case, we prefer to keep the richer set for
+PCA diagnostics, but possibly use a slimmer set for clustering.
+
+## 6.3 Principal component analysis
+
+```{r pca_run}
+pca_results <- prcomp(structure_z, center = FALSE, scale. = FALSE)
+
+pca_var_explained <- (pca_results$sdev)^2 / sum((pca_results$sdev)^2)
+pca_var_table <- data.frame(
+  PC = paste0("PC", seq_along(pca_var_explained)),
+  Variance_Explained = pca_var_explained,
+  Cumulative = cumsum(pca_var_explained)
+)
+
+pca_var_table
+```
+
+```{r pca_variance_plots}
+ggplot(pca_var_table, aes(x = PC, y = Variance_Explained)) +
+  geom_col(fill = "steelblue") +
+  labs(title = "Scree plot", x = "Principal component", y = "Variance explained")
+
+ggplot(pca_var_table, aes(x = seq_along(Cumulative), y = Cumulative)) +
+  geom_line() +
+  geom_point() +
+  scale_x_continuous(breaks = seq_along(pca_var_table$PC), labels = pca_var_table$PC) +
+  labs(title = "Cumulative explained variance",
+       x = "Principal component", y = "Cumulative variance explained")
+```
+
+```{r pca_loadings}
+top_loadings <- function(pca_obj, pc = 1, n = 5) {
+  out <- data.frame(
+    variable = names(pca_obj$rotation[, pc]),
+    loading = pca_obj$rotation[, pc]
+  )
+  out$abs_loading <- abs(out$loading)
+  out <- out[order(-out$abs_loading), ]
+  head(out, n)
+}
+
+top_loadings(pca_results, pc = 1, n = 8)
+top_loadings(pca_results, pc = 2, n = 8)
+top_loadings(pca_results, pc = 3, n = 8)
+```
+
+The PCA here is not intended to manufacture a predictive feature set by
+default. It is used to inspect whether a few components capture a large
+share of the structure and whether those components are interpretable.
+If the leading components are mainly combinations of route length and
+schedule timing, then PCA still teaches us something useful: it tells us
+which original variables overlap and where redundancy sits. We therefore
+keep the interpretation at workbook level: the scree plot tells us how
+much variance the first components capture, while the loading tables show
+which original variables are driving those components.
+
+```{r pca_followup_decisions}
+cum4 <- pca_var_table$Cumulative[min(4, nrow(pca_var_table))]
+distance_elapsed_cor <- cor(structure_z$DISTANCE, structure_z$CRS_ELAPSED_TIME)
+
+pca_followup_decisions <- data.frame(
+  decision_item = c(
+    "Use principal components as direct replacement in later predictive models",
+    "Keep both DISTANCE and CRS_ELAPSED_TIME in the clustering input",
+    "Use carrier/airport dummies in PCA or clustering"
+  ),
+  decision = c(
+    ifelse(
+      cum4 >= 0.80,
+      "Optional for later model comparison, but keep original engineered features as main representation",
+      "No; keep PCA as exploratory diagnostic and retain original engineered features for modelling"
+    ),
+    ifelse(
+      abs(distance_elapsed_cor) >= 0.85,
+      "No; keep DISTANCE and drop CRS_ELAPSED_TIME from the cluster distance space",
+      "Yes; overlap is not strong enough to justify dropping one upfront"
+    ),
+    "No; retain these variables only for post hoc interpretation"
+  ),
+  rationale = c(
+    "Even when PCA compresses variance reasonably well, the original engineered variables are operationally easier to interpret",
+    "If both variables capture nearly the same route-length signal, including both would overweight that structure in Euclidean clustering",
+    "High-cardinality dummy sets would dominate the unsupervised representation and mainly recover label partitions"
+  ),
+  stringsAsFactors = FALSE
+)
+
+pca_followup_decisions
+```
+
+This table makes the follow-up decision explicit. In our project, PCA is
+mainly useful as a screening and simplification diagnostic. Unless the
+components turn out to be both compact **and** interpretable, we do not
+replace the original engineered predictors in the main predictive
+analysis.
+
+## 6.4 Clustering
+
+Clustering asks a different question than PCA: do flights form recurring
+operational profiles under the chosen representation? Here that means
+profiles of route length, scheduled timing and coarse calendar
+structure. This is logically defensible, but it should be read
+carefully: these clusters are not delay classes, and they are not
+customer segments. At best, they describe schedule-and-route archetypes.
+
+```{r clustering_input}
+cluster_vars <- c(
+  "DISTANCE",
+  "DEP_HOUR_SIN", "DEP_HOUR_COS",
+  "ARR_HOUR_SIN", "ARR_HOUR_COS",
+  "MONTH_SIN", "MONTH_COS",
+  "IS_WEEKEND"
+)
+
+if (abs(distance_elapsed_cor) < 0.85) {
+  cluster_vars <- c("DISTANCE", "CRS_ELAPSED_TIME", setdiff(cluster_vars, "DISTANCE"))
+}
+
+set.seed(46748717)
+N_CLUSTER <- min(20000, nrow(structure_sample))
+idx_cluster <- sample(seq_len(nrow(structure_sample)), N_CLUSTER)
+
+cluster_data_z <- structure_z[idx_cluster, cluster_vars, drop = FALSE]
+cluster_data_original <- flights_structure[idx_structure[idx_cluster], c(
+  "DISTANCE", "CRS_ELAPSED_TIME", "SCHED_DEP_HOUR", "SCHED_ARR_HOUR",
+  "IS_WEEKEND", "IS_DELAYED", "OP_CARRIER", "ORIGIN", "DEST"
+)]
+```
+
+```{r elbow_plot}
+wss <- sapply(2:6, function(k) {
+  kmeans(cluster_data_z, centers = k, nstart = 20)$tot.withinss
+})
+
+elbow_df <- data.frame(k = 2:6, tot_withinss = wss)
+
+ggplot(elbow_df, aes(x = k, y = tot_withinss)) +
+  geom_line() +
+  geom_point() +
+  scale_x_continuous(breaks = 2:6) +
+  labs(title = "Elbow plot for k-means", x = "Number of clusters", y = "Total within-cluster sum of squares")
+```
+
+We use the elbow plot only as a heuristic. There is no single correct
+number of clusters. We choose a moderate value that balances compactness
+and interpretability rather than forcing very fine-grained segments.
+
+```{r kmeans_clustering}
+set.seed(46748717)
+K_CHOSEN <- 4
+kmeans_result <- kmeans(cluster_data_z, centers = K_CHOSEN, nstart = 25)
+
+cluster_projection <- prcomp(cluster_data_z, center = FALSE, scale. = FALSE)$x[, 1:2]
+cluster_plot_df <- data.frame(
+  PC1 = cluster_projection[, 1],
+  PC2 = cluster_projection[, 2],
+  cluster = factor(kmeans_result$cluster)
+)
+
+set.seed(46748717)
+idx_cluster_plot <- sample(seq_len(nrow(cluster_plot_df)), min(5000, nrow(cluster_plot_df)))
+
+ggplot(cluster_plot_df[idx_cluster_plot, ], aes(x = PC1, y = PC2, color = cluster)) +
+  geom_point(alpha = 0.2) +
+  labs(title = "K-means clusters projected onto the first two dimensions")
+```
+
+```{r cluster_profiles}
+cluster_profile_df <- cluster_data_original
+cluster_profile_df$cluster <- factor(kmeans_result$cluster)
+cluster_profile_df$IS_DELAYED <- as.numeric(cluster_profile_df$IS_DELAYED)
+
+cluster_sizes <- data.frame(
+  cluster = factor(names(table(cluster_profile_df$cluster))),
+  n = as.integer(table(cluster_profile_df$cluster))
+)
+
+cluster_sizes
+
+cluster_summary <- aggregate(
+  cbind(DISTANCE, CRS_ELAPSED_TIME, SCHED_DEP_HOUR, SCHED_ARR_HOUR, IS_WEEKEND, IS_DELAYED) ~ cluster,
+  data = cluster_profile_df,
+  FUN = mean
+)
+
+cluster_summary
+```
+
+The cluster summaries should be interpreted as descriptive profiles. If
+cluster delay rates differ only modestly while route length and schedule
+features differ strongly, that means the clustering solution is mainly
+recovering operational flight types rather than directly useful delay
+risk segments. In that case, cluster labels may still be helpful for
+communication or later experimentation, but they should not be treated
+as essential modelling features.
+
+```{r cluster_density_plots}
+cluster_density_df <- cluster_profile_df
+
+density_vars <- c("DISTANCE", "CRS_ELAPSED_TIME", "SCHED_DEP_HOUR", "SCHED_ARR_HOUR")
+density_vars <- intersect(density_vars, names(cluster_density_df))
+
+cluster_density_long <- reshape2::melt(
+  cluster_density_df[, c("cluster", density_vars)],
+  id.vars = "cluster"
+)
+
+ggplot(cluster_density_long, aes(x = value, color = cluster)) +
+  geom_density() +
+  facet_wrap(~ variable, scales = "free") +
+  labs(title = "Cluster distributions for key continuous variables",
+       x = "Value", y = "Density", color = "Cluster")
+```
+
+These density plots are useful here because they show whether the
+clusters actually differ in the underlying continuous features, rather
+than only in their mean values. We restrict them to continuous
+variables. For binary variables such as `IS_WEEKEND`, density plots are
+not very informative, so a table or mean per cluster remains clearer.
+
+```{r hierarchical_clustering}
+set.seed(46748717)
+N_HCLUST <- min(150, nrow(cluster_data_z))
+idx_hclust <- sample(seq_len(nrow(cluster_data_z)), N_HCLUST)
+
+hclust_input <- cluster_data_z[idx_hclust, , drop = FALSE]
+hclust_dist <- dist(hclust_input, method = "euclidean")
+hclust_result <- hclust(hclust_dist, method = "ward.D2")
+
+plot(hclust_result, labels = FALSE, hang = -1,
+     main = "Hierarchical clustering dendrogram (sample)",
+     xlab = "", sub = "", ylab = "Height")
+```
+
+Hierarchical clustering is included only on a small sample. For a data
+set of this size it is not a realistic full-data segmentation tool,
+because pairwise distances scale too poorly. We therefore use it as an
+illustrative check on whether the schedule-and-route representation
+shows nested similarity structure at all.
+
+```{r clustering_followup_decisions}
+clustering_followup_decisions <- data.frame(
+  item = c(
+    "Use k-means labels in the main predictive model right away",
+    "Use hierarchical clustering as definitive segmentation",
+    "Retain original engineered predictors after PCA/clustering"
+  ),
+  decision = c(
+    "Not yet; treat clusters as exploratory profiles first",
+    "No; use only as an illustrative small-sample check",
+    "Yes; they remain the main representation for later supervised models"
+  ),
+  rationale = c(
+    "These clusters describe route/time archetypes and must first prove added value before entering prediction",
+    "The full flight data is too large and the result would still depend strongly on representation and sample choice",
+    "The original engineered features stay closest to the business process and remain easier to interpret operationally"
+  ),
+  stringsAsFactors = FALSE
+)
+
+clustering_followup_decisions
+```
 
 # 7. Modelling
 
-## 7.1 Model 1: C5.0 decision tree
+In this section we align more closely with the classification workbook.
+The goal is not to try many complicated models, but to understand how a
+small set of classification models behaves on our flight-delay task.
+Throughout this section, the target class of interest is a delayed
+flight, because from an operational perspective missing a real delay is
+more costly than issuing a false alarm.
+
+## 7.1 Classification setup
+
+We prepare one modelling data set and then split it into training and
+testing data. The training data is used to estimate the classification
+rules, while the testing data is held back to inspect how the model
+behaves on unseen flights.
+
+## 7.2 Preparing the modelling data
 
 ```{r}
 flights_model <- flights_clean
@@ -821,10 +1596,77 @@ testing  <- testing(split)
 
 dim(training)
 dim(testing)
+```
+
+The feature set stays deliberately simple and close to the workbook
+style. We use scheduled timing, route length, carrier and coarse
+calendar information, because these are known before departure and are
+easy to interpret in operational terms.
+
+```{r training_testing_comparison}
+split_compare <- rbind(
+  data.frame(split = "Training", training[, c("IS_DELAYED_15", "DISTANCE", "DEP_HOUR")]),
+  data.frame(split = "Testing", testing[, c("IS_DELAYED_15", "DISTANCE", "DEP_HOUR")])
+)
+
+ggplot(split_compare, aes(x = IS_DELAYED_15, fill = split)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Class balance in training and testing data",
+       x = "Delay class", y = "Number of flights")
+
+ggplot(split_compare, aes(x = DISTANCE, fill = split)) +
+  geom_histogram(bins = 30, color = "white") +
+  facet_wrap(~ split, ncol = 1) +
+  labs(title = "Distance distribution: training vs testing",
+       x = "Distance (miles)", y = "Count")
+
+ggplot(split_compare, aes(x = DEP_HOUR, fill = split)) +
+  geom_histogram(bins = 24, color = "white") +
+  facet_wrap(~ split, ncol = 1) +
+  labs(title = "Departure-hour distribution: training vs testing",
+       x = "Scheduled departure hour", y = "Count")
+```
+
+These checks are simple but important. If the training and testing data
+show a very different class balance or very different feature
+distributions, then model evaluation becomes less trustworthy. Here we
+mainly want to confirm that the random split produced two comparable
+samples of the same flight population.
+
+## 7.3 Model 1: C5.0 decision tree
+
+```{r}
 
 model_tree <- C50::C5.0(IS_DELAYED_15 ~ ., data = training)
 
 summary(model_tree)
+```
+
+The decision tree is our first baseline because it is transparent. It
+shows which variables are used to split the data and in what order. That
+makes it easier to explain to non-technical readers than a more opaque
+model.
+
+```{r tree_conditions_plot}
+tree_plot_model <- rpart::rpart(
+  IS_DELAYED_15 ~ .,
+  data = training,
+  method = "class",
+  control = rpart::rpart.control(maxdepth = 3, minsplit = 3000, cp = 0.001)
+)
+
+plot(tree_plot_model, uniform = TRUE, margin = 0.1)
+text(tree_plot_model, use.n = TRUE, all = TRUE, cex = 0.7)
+```
+
+The C5.0 summary remains our main model output, but the extra shallow
+tree above makes the split conditions easier to read visually. We keep
+this plot intentionally small and shallow so the first decision rules are
+still interpretable at workbook level.
+
+## 7.4 Inspecting tree behaviour on unseen data
+
+```{r}
 
 pred_test <- predict(model_tree, testing)
 
@@ -838,7 +1680,7 @@ gmodels::CrossTable(
   dnn = c("Actual delay status", "Predicted delay status")
 )
 
-#Accuracy 
+# Accuracy
 mean(pred_test == testing$IS_DELAYED_15)
 
 actual <- testing$IS_DELAYED_15
@@ -861,339 +1703,227 @@ data.frame(
 )
 ```
 
-## 7.2 Model 2: Random Forest
+The confusion matrix is important because accuracy alone is not enough.
+For this business problem, the most costly error is a false negative: a
+flight predicted as on time that is actually delayed. Recall therefore
+deserves more attention than overall accuracy.
 
-## 7.3 Comparison
+## 7.5 Altering tree behaviour: boosting
+
+```{r}
+model_tree_boost <- C50::C5.0(IS_DELAYED_15 ~ ., data = training, trials = 10)
+
+pred_boost <- predict(model_tree_boost, testing)
+
+gmodels::CrossTable(
+  testing$IS_DELAYED_15,
+  pred_boost,
+  prop.chisq = FALSE,
+  prop.c = FALSE,
+  prop.r = FALSE,
+  prop.t = FALSE,
+  dnn = c("Actual delay status", "Predicted delay status")
+)
+
+tp_boost <- sum(actual == "Delayed" & pred_boost == "Delayed")
+tn_boost <- sum(actual == "On_time" & pred_boost == "On_time")
+fp_boost <- sum(actual == "On_time" & pred_boost == "Delayed")
+fn_boost <- sum(actual == "Delayed" & pred_boost == "On_time")
+
+data.frame(
+  model = "Boosted C5.0",
+  accuracy = (tp_boost + tn_boost) / (tp_boost + tn_boost + fp_boost + fn_boost),
+  recall_delayed = tp_boost / (tp_boost + fn_boost),
+  precision_delayed = tp_boost / (tp_boost + fp_boost)
+)
+```
+
+Boosting is relevant here because it allows the model to correct some of
+the mistakes made by earlier trees. We keep the number of trials modest
+so the workflow remains simple and close to the workbook.
+
+## 7.6 Altering tree behaviour: cost-sensitive classification
+
+```{r}
+cost_matrix <- matrix(c(NA, 1,
+                        2, NA),
+                      nrow = 2,
+                      ncol = 2,
+                      byrow = FALSE)
+rownames(cost_matrix) <- colnames(cost_matrix) <- c("Delayed", "On_time")
+
+model_tree_cost <- C50::C5.0(IS_DELAYED_15 ~ ., data = training, costs = cost_matrix)
+
+pred_cost <- predict(model_tree_cost, testing)
+
+gmodels::CrossTable(
+  testing$IS_DELAYED_15,
+  pred_cost,
+  prop.chisq = FALSE,
+  prop.c = FALSE,
+  prop.r = FALSE,
+  prop.t = FALSE,
+  dnn = c("Actual delay status", "Predicted delay status")
+)
+
+tp_cost <- sum(actual == "Delayed" & pred_cost == "Delayed")
+tn_cost <- sum(actual == "On_time" & pred_cost == "On_time")
+fp_cost <- sum(actual == "On_time" & pred_cost == "Delayed")
+fn_cost <- sum(actual == "Delayed" & pred_cost == "On_time")
+
+data.frame(
+  model = "Cost-sensitive C5.0",
+  accuracy = (tp_cost + tn_cost) / (tp_cost + tn_cost + fp_cost + fn_cost),
+  recall_delayed = tp_cost / (tp_cost + fn_cost),
+  precision_delayed = tp_cost / (tp_cost + fp_cost)
+)
+```
+
+This step fits the business problem particularly well. We explicitly say
+that missing a real delay should count as more costly than a false
+alarm. That usually shifts the tree toward higher recall for delayed
+flights, even if precision or accuracy decreases somewhat.
+
+## 7.7 Model 2: Random Forest
+
+```{r}
+rf_vars <- c(
+  "IS_DELAYED_15",
+  "DISTANCE",
+  "CRS_ELAPSED_TIME",
+  "DEP_HOUR",
+  "ARR_HOUR",
+  "MONTH",
+  "WEEKDAY",
+  "OP_CARRIER"
+)
+
+training_rf <- training[, rf_vars]
+testing_rf  <- testing[, rf_vars]
+
+set.seed(46748717)
+model_rf <- randomForest::randomForest(IS_DELAYED_15 ~ ., data = training_rf, ntree = 200)
+
+pred_rf <- predict(model_rf, testing_rf)
+
+tp_rf <- sum(actual == "Delayed" & pred_rf == "Delayed")
+tn_rf <- sum(actual == "On_time" & pred_rf == "On_time")
+fp_rf <- sum(actual == "On_time" & pred_rf == "Delayed")
+fn_rf <- sum(actual == "Delayed" & pred_rf == "On_time")
+
+data.frame(
+  model = "Random forest",
+  accuracy = (tp_rf + tn_rf) / (tp_rf + tn_rf + fp_rf + fn_rf),
+  recall_delayed = tp_rf / (tp_rf + fn_rf),
+  precision_delayed = tp_rf / (tp_rf + fp_rf)
+)
+
+importance(model_rf)
+varImpPlot(model_rf, main = "Random forest variable importance")
+```
+
+The random forest adds a second benchmark with more flexibility than a
+single tree. For this model we use a slightly simpler feature set than
+for the decision tree, because the `randomForest` package in base usage
+cannot handle predictors with very many factor levels, such as `ORIGIN`
+and `DEST`. Excluding those variables is acceptable here because this
+model is meant as a workbook-style benchmark rather than as the final
+best possible model.
+
+## 7.8 Comparison
+
+```{r}
+comparison_table <- data.frame(
+  model = c("C5.0 tree", "Boosted C5.0", "Cost-sensitive C5.0", "Random forest"),
+  accuracy = c(
+    accuracy,
+    (tp_boost + tn_boost) / (tp_boost + tn_boost + fp_boost + fn_boost),
+    (tp_cost + tn_cost) / (tp_cost + tn_cost + fp_cost + fn_cost),
+    (tp_rf + tn_rf) / (tp_rf + tn_rf + fp_rf + fn_rf)
+  ),
+  recall_delayed = c(
+    recall,
+    tp_boost / (tp_boost + fn_boost),
+    tp_cost / (tp_cost + fn_cost),
+    tp_rf / (tp_rf + fn_rf)
+  ),
+  precision_delayed = c(
+    precision,
+    tp_boost / (tp_boost + fp_boost),
+    tp_cost / (tp_cost + fp_cost),
+    tp_rf / (tp_rf + fp_rf)
+  )
+)
+
+comparison_table
+```
+
+For the business case, recall on delayed flights remains the most
+important metric. A model with slightly lower accuracy can still be
+preferable if it catches more truly delayed flights, because missing a
+real disruption is more costly operationally than raising some false
+alarms.
 
 # 8. Conclusions and recommendations
 
 ## 8.1 Operational recommendations
 
+Based on this first notebook, the strongest practical recommendation is
+to use the cleaned pre-departure data to create an early-warning view
+for operations teams. The exploratory plots suggest that delay risk is
+not random: it varies by month, time of day, carrier, airport and route.
+That means an airline could already prioritize monitoring and standby
+resources for flights that match historically riskier patterns.
+
 ## 8.2 Limitations & next steps
+
+This notebook is still limited to historical operational variables and a
+first set of engineered features. We have not yet added weather, lagged
+network effects, inbound aircraft information or airport congestion
+proxies. Those are relevant next steps because they may improve recall
+without violating the pre-departure information constraint.
+
+## 8.3 Assignment check
+
+To make the workbook easier to assess against the assignment, we
+summarize the main deliverables that are covered in the report:
+
+-   Business context, analytics task and success criteria are stated
+    explicitly.
+
+-   Data exploration is documented with interpretation rather than plots
+    only.
+
+-   Data preparation choices are motivated, including missing values,
+    datatype fixes and derived variables.
+
+-   PCA and clustering are only used after variable screening and only
+    on a coherent pre-departure feature space.
+
+-   Classification models are evaluated with a train-test split and a
+    confusion matrix, with explicit attention to recall versus
+    precision.
+
+-   Operational recommendations, limitations and next steps are stated
+    separately.
+
+This means the workbook now covers the main analytical elements that are
+normally expected in the group assignment. What still matters most for
+the final submission is that you verify the outputs after knitting and
+that the written interpretations still match the actual numbers and
+plots produced on your machine.
 
 # 9. Appendix
 
-## 9.1 Variable screening for PCA
+## 9.1 Variable screening for PCA and clustering
 
-```         
-For our project, PCA only makes sense on variables that meet a few conditions.  A variable is especially interesting for PCA in your setting if it:  is available before departure, contains no leakage, is numerical, or can be logically made numerical,  can contribute something substantive to a joint structure, is not simply the outcome itself or a post-event consequence.  So this is not a purely technical selection, but above all an analytical selection. Because the business question is formulated in a sense that we may only rely on pre-departutre information. So everything that is newly known: during flight, after departure, after arrival, or after the delay has already occurred, should be excluded for PCA in this setting. That is the most important criterion.
-```
+The main text already contains the screening and preparation decisions
+used for PCA and clustering. We reproduce the key tables here so the
+representation choices remain easy to review.
 
-```{r}
-#Omdat we nog niet echt feature ready data hebben om de PCA uit te voeren, converteren we even de data in useable data zodat we die verder kunnen gebruiken in de PCA
-
-pca_screen <- data.frame(
-  variable = c(
-    "FL_DATE", "OP_CARRIER", "OP_CARRIER_FL_NUM",
-    "ORIGIN", "DEST", "DISTANCE",
-    "CRS_DEP_TIME", "CRS_ARR_TIME", "CRS_ELAPSED_TIME",
-    "DEP_TIME", "ARR_TIME", "DEP_DELAY", "ARR_DELAY", "AIR_TIME",
-    "TAXI_OUT", "TAXI_IN", "WHEELS_OFF", "WHEELS_ON",
-    "CANCELLED", "DIVERTED",
-    "CARRIER_DELAY", "WEATHER_DELAY", "NAS_DELAY", "SECURITY_DELAY", "LATE_AIRCRAFT_DELAY",
-    "IS_DELAYED", "WEEKDAY", "MONTH"
-  ),
-  type = c(
-    "date", "categorical", "identifier",
-    "categorical", "categorical", "numeric",
-    "time", "time", "numeric",
-    "time_actual", "time_actual", "post_event", "post_event", "post_event",
-    "post_event", "post_event", "post_event", "post_event",
-    "status", "status",
-    "post_event_cause", "post_event_cause", "post_event_cause", "post_event_cause", "post_event_cause",
-    "target", "categorical", "calendar_numeric"
-  ),
-  pre_departure_available = c(
-    TRUE, TRUE, TRUE,
-    TRUE, TRUE, TRUE,
-    TRUE, TRUE, TRUE,
-    FALSE, FALSE, FALSE, FALSE, FALSE,
-    FALSE, FALSE, FALSE, FALSE,
-    FALSE, FALSE,
-    FALSE, FALSE, FALSE, FALSE, FALSE,
-    FALSE, TRUE, TRUE
-  ),
-  pca_label = c(
-    "watchlist", "watchlist", "ignore",
-    "watchlist", "watchlist", "usable",
-    "watchlist", "watchlist", "usable",
-    "ignore", "ignore", "ignore", "ignore", "ignore",
-    "ignore", "ignore", "ignore", "ignore",
-    "ignore", "ignore",
-    "ignore", "ignore", "ignore", "ignore", "ignore",
-    "ignore", "watchlist", "watchlist"
-  ),
-  reason = c(
-    "Raw date not suitable; use derived calendar features instead",
-    "Raw carrier code not numeric; maybe useful through historical aggregates",
-    "Identifier-like variable; no meaningful numeric PCA scale",
-    "Raw airport code not numeric; maybe useful through aggregates",
-    "Raw airport code not numeric; maybe useful through aggregates",
-    "Numeric, pre-departure, operationally meaningful",
-    "Raw clock time is cyclical; re-encode before PCA",
-    "Raw clock time is cyclical; re-encode before PCA",
-    "Numeric, pre-departure, operationally meaningful",
-    "Actual departure time is post-event",
-    "Actual arrival time is post-event",
-    "Realized departure delay is post-event / leakage",
-    "Realized arrival delay is post-event / target-adjacent",
-    "Realized air time is post-event",
-    "Realized taxi-out is post-event",
-    "Realized taxi-in is post-event",
-    "Realized takeoff time is post-event",
-    "Realized landing time is post-event",
-    "Outcome/status variable, not predictor",
-    "Outcome/status variable, not predictor",
-    "Delay cause recorded after event",
-    "Delay cause recorded after event",
-    "Delay cause recorded after event",
-    "Delay cause recorded after event",
-    "Delay cause recorded after event",
-    "Target variable, must not enter PCA",
-    "Useful only after encoding / transformation",
-    "Potentially useful, but cyclical/calendar representation preferred"
-  ),
-  stringsAsFactors = FALSE
-)
-
-
-# =========================
-# Variables to inspect visually for PCA screening
-# =========================
-
-screen_vars <- subset(pca_screen, pca_label %in% c("usable", "watchlist"))$variable
-screen_vars <- intersect(screen_vars, names(flights_clean))
-
-screen_vars
-
-# =========================
-# Appendix plotting function
-# =========================
-
-plot_screen_variable <- function(df, varname, max_levels = 20) {
-  
-  x <- df[[varname]]
-  
-  # Datetime / POSIXct
-  if (inherits(x, "POSIXct") || inherits(x, "Date")) {
-    message("Variable ", varname, " is date/datetime. Plot derived summary instead.")
-    
-    # For Date: show counts over time if not too many dates
-    tmp <- data.frame(value = x)
-    p <- ggplot(tmp, aes(x = value)) +
-      geom_bar() +
-      labs(title = paste("Distribution of", varname),
-           x = varname, y = "Count")
-    print(p)
-    
-  # Numeric / integer / logical
-  } else if (is.numeric(x) || is.integer(x)) {
-    tmp <- data.frame(value = x)
-    p <- ggplot(tmp, aes(x = value)) +
-      geom_histogram(bins = 40, fill = "steelblue", color = "white") +
-      labs(title = paste("Histogram of", varname),
-           x = varname, y = "Count")
-    print(p)
-    
-    p2 <- ggplot(tmp, aes(y = value)) +
-      geom_boxplot(fill = "tomato", alpha = 0.7) +
-      labs(title = paste("Boxplot of", varname),
-           y = varname, x = "")
-    print(p2)
-    
-  # Character / factor
-  } else {
-    tab <- sort(table(x), decreasing = TRUE)
-    tab <- head(tab, max_levels)
-    tmp <- data.frame(level = names(tab), n = as.integer(tab))
-    
-    p <- ggplot(tmp, aes(x = reorder(level, n), y = n)) +
-      geom_col(fill = "darkseagreen4") +
-      coord_flip() +
-      labs(title = paste("Top categories of", varname),
-           x = varname, y = "Count")
-    print(p)
-  }
-}
-
-# =========================
-# Loop through variables for appendix plots
-# =========================
-
-for (v in screen_vars) {
-  cat("\n\n###", v, "\n")
-  plot_screen_variable(flights_clean, v)
-}
-
-# =========================
-# Add empirical data checks to screening table
-# =========================
-
-pca_screen$exists_in_data <- pca_screen$variable %in% names(flights_clean)
-
-pca_screen$n_missing <- sapply(pca_screen$variable, function(v) {
-  if (v %in% names(flights_clean)) sum(is.na(flights_clean[[v]])) else NA
-})
-
-pca_screen$pct_missing <- sapply(pca_screen$variable, function(v) {
-  if (v %in% names(flights_clean)) round(100 * mean(is.na(flights_clean[[v]])), 2) else NA
-})
-
-pca_screen$n_distinct <- sapply(pca_screen$variable, function(v) {
-  if (v %in% names(flights_clean)) length(unique(flights_clean[[v]])) else NA
-})
-
-pca_screen$is_numeric_in_data <- sapply(pca_screen$variable, function(v) {
-  if (v %in% names(flights_clean)) is.numeric(flights_clean[[v]]) else NA
-})
-
-pca_screen
-
-# =========================
-# Feature engineering for PCA-ready variables
-# =========================
-
-pca_df <- flights_clean
-# Departure hour and arrival hour from scheduled times
-pca_df$DEP_HOUR <- as.numeric(format(pca_df$CRS_DEP_TIME, "%H")) +
-                   as.numeric(format(pca_df$CRS_DEP_TIME, "%M")) / 60
-
-pca_df$ARR_HOUR <- as.numeric(format(pca_df$CRS_ARR_TIME, "%H")) +
-                   as.numeric(format(pca_df$CRS_ARR_TIME, "%M")) / 60
-
-# Cyclical encoding for departure hour and arrival hour
-pca_df$DEP_HOUR_SIN <- sin(2 * pi * pca_df$DEP_HOUR / 24)
-pca_df$DEP_HOUR_COS <- cos(2 * pi * pca_df$DEP_HOUR / 24)
-
-pca_df$ARR_HOUR_SIN <- sin(2 * pi * pca_df$ARR_HOUR / 24)
-pca_df$ARR_HOUR_COS <- cos(2 * pi * pca_df$ARR_HOUR / 24)
-
-# Cyclical encoding for month
-#pca_df$MONTH_SIN <- sin(2 * pi * pca_df$MONTH / 12)
-#pca_df$MONTH_COS <- cos(2 * pi * pca_df$MONTH / 12)
-
-# Ensure weekday is ordered properly
-weekday_levels <- c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
-
-pca_df$WEEKDAY_F <- factor(pca_df$WEEKDAY, levels = weekday_levels, ordered = TRUE)
-pca_df$WEEKDAY_NUM <- as.numeric(pca_df$WEEKDAY_F)
-
-# Cyclical encoding for weekday
-pca_df$WEEKDAY_SIN <- sin(2 * pi * pca_df$WEEKDAY_NUM / 7)
-pca_df$WEEKDAY_COS <- cos(2 * pi * pca_df$WEEKDAY_NUM / 7)
-
-# =========================
-# First PCA-ready feature set
-# =========================
-
-pca_vars <- c(
-  "DISTANCE",
-  "CRS_ELAPSED_TIME",
-  "DEP_HOUR_SIN", "DEP_HOUR_COS",
-  "ARR_HOUR_SIN", "ARR_HOUR_COS",
-  "MONTH_SIN", "MONTH_COS",
-  "WEEKDAY_SIN", "WEEKDAY_COS"
-)
-
-pca_input <- pca_df[, pca_vars]
-
-pca_input_complete <- na.omit(pca_input)
-
-dim(pca_input_complete)
-summary(pca_input_complete)
-
-
-# =========================
-# Histograms for engineered PCA features
-# =========================
-
-for (v in names(pca_input_complete)) {
-  tmp <- data.frame(value = pca_input_complete[[v]])
-  
-  p <- ggplot(tmp, aes(x = value)) +
-    geom_histogram(bins = 40, fill = "steelblue", color = "white") +
-    labs(title = paste("Histogram of engineered feature:", v),
-         x = v, y = "Count")
-  print(p)
-}
-
-# =========================
-# Run PCA
-# =========================
-
-pca_model <- prcomp(pca_input_complete, center = TRUE, scale. = TRUE)
-
-summary(pca_model)
-
-# =========================
-# Explained variance
-# =========================
-
-pca_var_explained <- (pca_model$sdev)^2 / sum((pca_model$sdev)^2)
-pca_var_table <- data.frame(
-  PC = paste0("PC", seq_along(pca_var_explained)),
-  Variance_Explained = pca_var_explained,
-  Cumulative = cumsum(pca_var_explained)
-)
-
-pca_var_table
-# Scree plot
-ggplot(pca_var_table, aes(x = PC, y = Variance_Explained)) +
-  geom_col(fill = "steelblue") +
-  labs(title = "Scree plot", x = "Principal Component", y = "Proportion of variance explained")
-# Cumulative explained variance
-ggplot(pca_var_table, aes(x = seq_along(Cumulative), y = Cumulative)) +
-  geom_line() +
-  geom_point() +
-  scale_x_continuous(breaks = seq_along(pca_var_table$PC), labels = pca_var_table$PC) +
-  labs(title = "Cumulative explained variance",
-       x = "Principal Component", y = "Cumulative variance explained")
-
-# =========================
-# PCA loadings
-# =========================
-
-loadings <- pca_model$rotation
-round(loadings, 3)
-round(loadings[, 1:4], 3)
-
-# =========================
-# PCA scores
-# =========================
-
-scores <- as.data.frame(pca_model$x)
-head(scores)
-ggplot(scores, aes(x = PC1, y = PC2)) +
-  geom_point(alpha = 0.15) +
-  labs(title = "PCA plot: observations in PC1-PC2 space")
-
-
-# =========================
-# Add target back only for interpretation
-# =========================
-
-pca_complete_rows <- complete.cases(pca_input)
-scores$IS_DELAYED <- pca_df$IS_DELAYED[pca_complete_rows]
-ggplot(scores, aes(x = PC1, y = PC2, color = IS_DELAYED)) +
-  geom_point(alpha = 0.2) +
-  labs(title = "PCA plot colored by delay status")
-
-# =========================
-# Top absolute loadings per component
-# =========================
-
-top_loadings <- function(pca_model, pc = 1, n = 5) {
-  ld <- pca_model$rotation[, pc]
-  out <- data.frame(
-    variable = names(ld),
-    loading = ld,
-    abs_loading = abs(ld)
-  )
-  out <- out[order(-out$abs_loading), ]
-  head(out, n)
-}
-
-top_loadings(pca_model, pc = 1, n = 10)
-top_loadings(pca_model, pc = 2, n = 10)
-top_loadings(pca_model, pc = 3, n = 10)
+```{r appendix_pca_screening}
+structure_screen
+prep_decisions
+pca_followup_decisions
+clustering_followup_decisions
 ```
