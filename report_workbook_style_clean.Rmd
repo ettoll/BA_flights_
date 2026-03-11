@@ -926,8 +926,8 @@ This scatterplot helps us separate volume from risk. A large airport
 with a high delay rate matters more than a very small airport with a
 high but unstable rate, because it affects many more flights.
 
-Next we look at two simple relationships: distance and planned
-departure time.
+Next we look at two simple relationships: distance and planned departure
+time.
 
 ```{r}
 set.seed(46748717)
@@ -1166,9 +1166,9 @@ prep_decisions
 
 We use Z-score standardization here because PCA and distance-based
 clustering are sensitive to scale. This puts the variables on a more
-equal footing. We do not add an extra log transformation for
-`DISTANCE` or `CRS_ELAPSED_TIME`, because we want to keep those
-variables easy to interpret.
+equal footing. We do not add an extra log transformation for `DISTANCE`
+or `CRS_ELAPSED_TIME`, because we want to keep those variables easy to
+interpret.
 
 ```{r pca_cluster_feature_space}
 representation_vars <- c(
@@ -1313,13 +1313,14 @@ cum4 <- pca_var_table$Cumulative[min(4, nrow(pca_var_table))]
 distance_elapsed_cor <- cor(structure_z$DISTANCE, structure_z$CRS_ELAPSED_TIME)
 ```
 
-The first four principal components explain
-`r round(100 * cum4, 1)`% of the variance. That is helpful for
-understanding the data, but not enough to drop the original variables.
-For the later models, the original variables are still easier to explain.
+The first four principal components explain `r round(100 * cum4, 1)`% of
+the variance. That is helpful for understanding the data, but not enough
+to drop the original variables. For the later models, the original
+variables are still easier to explain.
 
 The correlation between `DISTANCE` and `CRS_ELAPSED_TIME` is
-`r round(distance_elapsed_cor, 2)`. `r if (abs(distance_elapsed_cor) >= 0.85) "That overlap is quite strong, so we do not want both variables to weigh too heavily in the clustering step." else "That overlap is not extreme, so we can keep both for now, but we still read the clustering results with that overlap in mind."`
+`r round(distance_elapsed_cor, 2)`.
+`r if (abs(distance_elapsed_cor) >= 0.85) "That overlap is quite strong, so we do not want both variables to weigh too heavily in the clustering step." else "That overlap is not extreme, so we can keep both for now, but we still read the clustering results with that overlap in mind."`
 
 We also leave carrier and airport dummies out of PCA and clustering,
 because they would mainly separate labels instead of showing broader
@@ -1935,10 +1936,10 @@ reasonably well and not only on one lucky test set.
 
 ## 7.10 Looking beyond one threshold
 
-So far we mostly looked at class labels such as "Delayed" or
-"On_time". ROC curves and AUC add another view: they show how well the
-model ranks flights from lower to higher delay risk across many possible
-thresholds. We include this for the main models that give usable class
+So far we mostly looked at class labels such as "Delayed" or "On_time".
+ROC curves and AUC add another view: they show how well the model ranks
+flights from lower to higher delay risk across many possible thresholds.
+We include this for the main models that give usable class
 probabilities.
 
 ```{r roc_auc}
@@ -2054,10 +2055,10 @@ those patterns can already help with planning and monitoring.
 
 ## 8.2 Limitations & next steps
 
-This notebook still has clear limits. We only use historical
-operational variables and a first set of engineered features. Weather,
-network effects, inbound aircraft information and congestion measures
-could be good next steps.
+This notebook still has clear limits. We only use historical operational
+variables and a first set of engineered features. Weather, network
+effects, inbound aircraft information and congestion measures could be
+good next steps.
 
 ## 8.3 Assignment check
 
