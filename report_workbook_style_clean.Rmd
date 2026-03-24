@@ -1,6 +1,6 @@
 ---
 title: "MOT143A: Business Analytics group 20"
-author: "Hidde Segers and Lotte Feilzer"
+author: "Nora Donders, Stijn, Brian, Hidde Segers and Lotte Feilzer"
 date: "2026-03-04"
 output:
   html_document:
@@ -18,98 +18,100 @@ editor_options:
 
 ## 1.1 Business problem
 
-**Context:** Airlines running domestic flights in the United States
-(U.S.) must manage constantly resources such as gates, crew members,
-ground handling staff, and customer service capacity. These decisions
-have to be made quickly and often with limited certainty.
+**Context:** Airlines operating domestic flights in the United States
+need to manage gates, crews, ground handling staff and customer service
+capacity. These decisions often have to be made quickly and without
+knowing the whole of the situation.
 
-Flight delays and cancellations can cause a lot of trouble for those who
-are trying to get on time. When things go wrong, airlines have to pay
-for: crew overtime, gate conflicts, aircraft re-positioning,
-compensation, re-booking logistics, and re-putational damage. At the
-same time, customer satisfaction declines, which affects their name and
-in the long-term their revenue.
+Flight delays and cancellations are expensive for the airlines and
+irritating ans stressful for the passengers. Airlines have to deal with
+numerous problems including crew overtime, gate conflicts, aircraft
+repositioning, compensation, rebooking work and reputational damage.
 
-**Problem:** Delays and cancellations are really expensive for airlines
-and can be frustrating for passengers. A single delay can create high
-costs for crew overtime, gate conflicts, re-booking workloads. Because
-flights are connected in a daily schedule, one delay can also cause
-follow-on delays later in the network. This increases operational costs
-and directly reduces customer satisfaction.
+**Problem:** A single delay almost always has repercussions for other
+flights as well. Flights are using the same planes and are therefor
+intertwined with their schedule. If one flight is delayed it creates
+more delays later in the day raising operational costs and reducing
+customer satisfaction.
 
-The practical challenge is that a lot of operational decisions must be
-made before the flights departures. At that time it is still not clear
-whether the flight is running on time or not. If the airline can figure
-out flights that are likely to be delayed early, it can allocate
-resources more active (e.g., assign standby crew, prepare customer
-service capacity or adjust gate plans) and reduce the impact when such
-delays occurs.
-
-This leads to our business question:
+The most challenging part for operation is that a lot of the decisions
+need to be made before a flight departs. At that point not all setbacks
+are known and therefor also not the final outcome for its departure. If
+an airline were able to identify flights with a high delay risk far
+before departure, an appropiate solution can be thought beforehand.
+Preparing standby crew, adjusting gate plans, or increasing customer
+service capacity are examples of operations that the airline could
+impose beforehand so further delays are avoided or reduced. Delays would
+still happen but decreases the impact of a single delay for further
+delays, costs and customers dissatisfaction.
 
 **Business question:** How can we estimate the probability that a
-scheduled flight will be delayed (e.g. more than 15 min) before
-departure?
+scheduled flight will be delayed (more than 15 min) before departure?
 
-The goal is not to "predict the truth" perfectly, but to provide a risk
-signal that helps operations teams prioritize attention and resources
-towards flights with the highest expected delay risk. From an
-organizational perspective, the insights are meant for operations
-control centers, network planners and day-of-operations managers. The
-model would be used in real-time operational setting, where planners
-monitor flights and allocate resources (that are most of the time
-limited). In this context, the prediction functions as a
-decision-support tool that can help prioritize attention and
-interventions for flights with the highest risk of delay.
+The purpose of this analysis is not to predict the future perfectly. The
+goal is to be able to make a risk signal that aids operations teams with
+the division of focus attention and resources on flights with the
+highest expected delay risk. From an organizational perspective, the
+main users would be operations control centres, network planners, and
+day-of-operations managers. In that setting, the model is best seen as a
+decision-support tool rather than an automatic decision-maker.
 
 ## 1.2 Analytics task
 
-This analysis is focused on the perspective of the airline operations
-control and the airport station management to identify high risk
-flights. This should support the workers with allocation of staff, gates
-and premature consumer communication. The model will be used for
-pre-departure planning setting and will be based on the historical
-operational data of US domestic flights. The business problem will be
-translated to an analytic task by approaching it as a predictive
-risk-scoring problem. Three possible targets were considered:
+This analysis takes the perspective of airline operations control and
+airport station management. The aim is to identify higher-risk flights
+early enough to support staffing, gate planning, and earlier passenger
+communication. Because the decision moment is before departure, we only
+want to use information that would realistically be known at that time.
+
+This leads naturally to a predictive risk-scoring task based on
+historical U.S. domestic flight data. Before choosing the final task, we
+considered three possible targets:
 
 -   **Classification A (delay):**
 
     **Target:** `IS_DELAYED_15 = 1` if `ARR_DELAY >= 15`, otherwise 0.
 
-    Here it is analysed whether or not a flight will be significantly
-    delayed or not (this is for flights that are neither diverted or
-    delayed).
+    This asks whether a completed flight arrives with a meaningful
+    delay.
 
 -   **Classification B (cancellation):**
 
     **Target:** `CANCELLED == 1`
 
-    Here it is analysed whether or not a flight will be cancelled.
+    This asks whether a flight will be cancelled.
 
 -   **Regression:**
 
     **Target:** `ARR_DELAY`
 
-    Here it is analysed how much too late a flight will likely be in
-    minutes.
+    This asks how many minutes of arrival delay we should expect.
 
-The primary task chosen is classification A, this is because it will be
-directly usable to relocate resources if needed and where focus in
-logistics needs to focused. It is important to press that the model
-can't reason and does not rely on causality. It also will not be able to
-guarantee outcomes. It will estimate the risk for significant delay and
-consequently improve and support operational actions. Classification for
-cancellation will be harder because of the rarity of this event. The
-regression of the delay is also hard to predict and the type of delay
-can but does not also translate to how much delay there will be.
+We choose Classification A as the main task. That choice follows from
+the business question: operations teams mainly need an early warning
+about whether a flight is likely to become meaningfully delayed, because
+that is directly useful for reallocating attention and resources. This
+is also an assumption we make explicit in the report: a clear delayed vs
+on-time signal is more actionable here than a raw minute prediction.
+
+We do not choose cancellation as the main task because cancellations are
+much rarer and therefore harder to model well. We also do not choose
+regression as the main task because predicting the exact number of delay
+minutes is harder to explain and less directly useful for the first
+operational decision. So the reasoning pipeline is:
+
+-   the business problem is pre-departure resource allocation;
+
+-   that requires a pre-departure risk signal;
+
+-   therefore the main analytics task becomes binary classification of
+    meaningful arrival delay.
 
 ## 1.3 Success criteria
 
-We consider the success criteria for this report in two perspectives.
-Firstly, model criteria that will be need to be met to answer our
-business question. Secondly, the business criteria that will ensure
-positive effects of the model in practice.
+We define success from two angles. First, the model should answer the
+analytics question in a usable way. Second, the model should support the
+business problem in practice.
 
 From an operational point of view, missing a real delay is usually worse
 than raising a false alarm. If the model says a flight will be on time
@@ -120,15 +122,15 @@ If the model predicts a delay that does not happen, it may lead to some
 extra costs because resources were allocated unnecessarily. However,
 this is less harmful than being unprepared for a real delay.
 
-For this reason, we focus on high recall for the delayed flight s. We
-want the model to catch as many real delays as possible, even if that
-means accepting some false alarms. At the same time, we monitor
-precision to make sure we do not allocate too many unnecessary
-resources.
+For this reason, we focus on high recall for delayed flights. We want
+the model to catch as many real delays as possible, even if that means
+accepting some false alarms. At the same time, we monitor precision to
+make sure we do not allocate too many unnecessary resources.
 
 # 2. Setup
 
-Here all packages are downloaded to make the code reproducible.
+This section loads the packages used throughout the notebook so the
+workflow stays reproducible.
 
 ```{r setup}
 # CRAN mirror
@@ -160,10 +162,9 @@ set.seed(46748717)
 
 ## 3.1 Data in `data/` folder
 
-Here we read our data. In the code it is easy to change the year of data
-we want to see, just change the variable `YEAR`. Because the data_files
-are quite big we added the possibility to print only a specific amount
-of rows as given in `nrows` a value of `-1` will give all rows.
+Here we read the flight data. The year can be changed through `YEAR`.
+Because the files are large, `N_READ` makes it possible to read either a
+smaller subset for a quick check or the full dataset with `-1`.
 
 ```{r data_files}
 data_dir <- "data"
@@ -174,23 +175,23 @@ flights <- read.csv(csv_path, stringsAsFactors = FALSE, nrows = N_READ)
 
 ## 3.2 Read data
 
-Now we read our actual data and print the dimensions and columns names
-to get a first clue of what kind of data were dealing with.
+We first inspect the dimensions and column names to understand what kind
+of data we have and what the unit of analysis appears to be.
 
 ```{r read_data}
 dim(flights)
 names(flights)
 ```
 
-As seen the data file contains:
+The data file contains:
 
 -   7,213,446 observations
 
 -   28 variables
 
-We see that each observation represents one commercial flight in 2018.
-The variables are as follows and categorized in definitions that can be
-used to refer to groups of variables further in the report:
+Each observation represents one commercial flight in 2018. We group the
+variables into a few practical categories so we can refer back to them
+more clearly later in the report.
 
 -   **Flight identifiers:** FL_DATE, OP_CARRIER, OP_CARRIER_FL_NUM
 
@@ -208,7 +209,7 @@ used to refer to groups of variables further in the report:
 
 -   **Flight status indicators:** CANCELLED, DIVERTED
 
-The variables can be descriped into the following categories:
+The variables can be described in the following categories:
 
 ### Flight Identifiers
 
@@ -229,7 +230,7 @@ The variables can be descriped into the following categories:
 ## Scheduled times
 
 | Variable         | Description               | Variable type                   |
-|------------------|---------------------------|---------------------------------|
+|------------------|-------------------------|------------------------------|
 | CRS_DEP_TIME     | Scheduled departure time  | integer / numeric (HHMM format) |
 | CRS_ARR_TIME     | Scheduled arrival time    | integer / numeric (HHMM format) |
 | CRS_ELAPSED_TIME | Scheduled flight duration | integer / numeric (minutes)     |
@@ -263,7 +264,7 @@ The variables can be descriped into the following categories:
 ## Delay causes
 
 | Variable | Description | Variable type |
-|----|----|----|
+|------------------------|------------------------|------------------------|
 | CARRIER_DELAY | Delay caused by airline | integer / numeric (minutes) |
 | WEATHER_DELAY | Delay caused by weather | integer / numeric (minutes) |
 | NAS_DELAY | Delay caused by air traffic system | integer / numeric (minutes) |
@@ -272,17 +273,22 @@ The variables can be descriped into the following categories:
 
 ## 4.1 Data summary
 
-Here we show a small summary of the data. The following things are
-noticeable. Columns in this datafile that contain dates are characters
-preferably we change this later to datetimes. It is also remarkable that
-the times are given in military time but as integers, this will make it
-hard to calculate certain metrics inveolving time such as "time passed"
-therefor we will preferably also change these datatypes later on to
-datetimes. For metrics such as `TAXI_OUT` and `DEP_DELAY` the integers
-are suitable because it represents the amount of minutes passed. We see
-that for the `DIVERTED` and `CANCELLED` columns `0` and `1` are used
-instead of Booleans to respresent `FALSE` and `TRUE` respectively, this
-is also workable if remarked. Let's further explore the data.
+We start with a basic structural check of the data. This is important
+because before we decide how to clean or model anything, we first need
+to understand how the variables are stored.
+
+At this stage a few things stand out. `FL_DATE` is stored as text, so we
+will later convert it to a real date. Several scheduled and actual time
+variables are stored as integers in `HHMM` format rather than as usable
+time values, which makes direct time calculations awkward. By contrast,
+variables such as `TAXI_OUT` and `DEP_DELAY` are already stored as
+minutes, which is suitable for analysis. We also see that `CANCELLED`
+and `DIVERTED` use `0/1` coding rather than logical `TRUE/FALSE`, which
+is fine as long as we handle it consistently.
+
+These observations directly motivate the next steps. First we inspect
+structure and missingness. Then we decide which datatype changes and
+cleaning steps are actually needed for the pre-departure analysis.
 
 ```{r explore_basic}
 str(flights)
@@ -346,12 +352,10 @@ distribution is highly skewed and dominated by a long right tail.
 
 ## 4.2 Missing values overview and discussion
 
-Here we check whether or not we have missing values in our dataset, how
-many there are and what are the possible reasons for these missing
-values are. We use logical reasoning in order to determine what to do
-with potential missing data. Here we show a table that shows the amount
-of NA values for each column and also a percentage of how many values
-are missing in regards to the total dataset.
+We now inspect missing values. The point is not only to count `NA`s, but
+also to understand why they occur. In operational data, missingness can
+be structural rather than accidental, so the next cleaning step should
+depend on the reason for the missing value and not just on the count.
 
 ```{r missingness}
 na_count <- sapply(flights, function(x) sum(is.na(x)))
@@ -366,21 +370,20 @@ na_table <- na_table[order(-na_table$na_pct), ]
 na_table
 ```
 
-Firstly we see a column `Unnamed..27` which seems to have only NA values
-making the column absolute and removable. We see for the operational
-variables and flight performance variables such as `DEP_TIME`,
-`ARR_TIME`, `AIR_TIME`, `WHEELS_ON`, `WHEELS_OFF` that 1-2% of all
-values are missing. We should note that all arrival variables have about
-the same amount of NA values missing and idem for the departure values.
-This probably means that the NA values are probably/hopefully
-explainable for the same reasons. First we check whether the NAs
-occurring in the delay rows all occur in the same row. The cell below
-tells us this is the case. This lets us know that these `DELAY` causes
-variables are jointly observed or missing. This is good sign. These rows
-are supposed to be filled in after a flight and give a reason for the
-delay if it was significant delayed (15 minutes or more). In our check
-this also seems to be the case. All flights that are 15+ minutes delayed
-have a cause and vice versa.
+The table already suggests three different missingness patterns. First,
+`Unnamed..27` contains only missing values, so it does not carry useful
+information and can be dropped. Second, several operational variables
+such as `DEP_TIME`, `ARR_TIME`, `AIR_TIME`, `WHEELS_ON`, and
+`WHEELS_OFF` are missing in roughly the same small share of rows. That
+often indicates a shared operational reason rather than random data
+entry errors. Third, the delay-cause columns also seem to be jointly
+missing or jointly present.
+
+That leads to the next check. Before removing anything, we verify
+whether the delay-cause columns behave as structurally missing fields:
+they should only be filled when a substantial realised delay exists. If
+that is true, we should not treat those `NA`s as a classic data-quality
+problem.
 
 ```{r delay-na-same}
 cause_cols <- intersect(c("CARRIER_DELAY","WEATHER_DELAY",
@@ -396,9 +399,10 @@ cat("Causes are present but there was no 15 min delay:", sum(cause_present & !de
 cat("More than 15 min delay but cause is NA value:", sum(delay15 & !cause_present))
 ```
 
-Now we check if it possible for a delay flight to have multiple reasons
-for delay this might handy to know later on. This seems to be possible
-and is the case for 51.56% of the delayed flights.
+Next we check whether a delayed flight can have multiple recorded delay
+causes. This is useful context for interpretation later on, because it
+tells us whether delay causes behave like a single-label explanation or
+whether multiple operational problems can happen on the same flight.
 
 ```{r cause-compact}
 k <- rowSums(flights[cause_present, cause_cols, drop=FALSE] > 0)
@@ -411,14 +415,12 @@ multi_pct <- round(100 * multi_n / total_n, 2)
 cat("Of the flights with delay causes,", multi_pct, "% have multiple causes for delay.")
 ```
 
-We now know that our delay causes columns are in fact complete. We can
-now check if for the flights that have taken off all the important
-operational and performance variables are present (`ARR_DELAY`,
-`ARR_TIME` ect.) or that some or all values are missing for certain
-rows. The NA values for the these rows as presented above could be
-explained if these are the rows of flights that were diverted or
-cancelled. If not, crucial information might be missing. If so, we
-analyse this here.
+We now know that the delay-cause columns are structurally complete for
+their purpose. The next step is to check the missing values in realised
+operational fields such as `ARR_DELAY` and `ARR_TIME`. Here the working
+assumption is that many of those missing values belong to cancelled or
+diverted flights. If that is true, the missingness is again explained by
+the flight outcome rather than by poor data quality.
 
 ```{r non_cancelled_missingness_check}
 flights_wo_cancelled <- which(flights$CANCELLED == 0 & flights$DIVERTED == 0)
@@ -437,13 +439,12 @@ na_table_wo_cd <- na_table_wo_cd[order(-na_table_wo_cd$na_pct_wo_cd), ]
 na_table_wo_cd
 ```
 
-We can see that a flight that was either cancelled or diverted, it
-accounts for the reasons that rows contain NA values for performance and
-operational variables. We can see that the only two performance
-variables that have still NA values are `ARR_DELAY` and `DEP_DELAY`,
-why? These NA values might cause some trouble when modelling because we
-use `ARR_DELAY` as predictors in the pre-departure model. Let's check by
-showing the rows were this data is missing.
+This table shows that cancelled or diverted flights explain almost all
+of the missingness in realised performance fields. After removing those
+rows, the only important remaining gaps are in `ARR_DELAY` and
+`DEP_DELAY`. That matters because `ARR_DELAY` is used to define our
+target, so we need a clear rule for these remaining cases before moving
+on.
 
 ```{r check-missing-mostly-delays}
 dep_delays_missing <- which(is.na(flights_wo_cancelled_df$DEP_DELAY)) 
@@ -452,14 +453,12 @@ missing_delays <- flights_wo_cancelled_df[c(dep_delays_missing, arr_delays_missi
 head(missing_delays)
 ```
 
-First we need to look into what we want to do with the rows in which the
-`DEP_DELAY` and/or `ARR_DELAY` variables are missing. It seems that
-there are only NA values for these columns when the `CRS_DEP_TIME` and
-`DEP_TIME` have the same value and idem for the arrival. This means that
-in this dataset the NA values just mean that plane left exactly at the
-intended time. If this is the case we can replace the NA values in these
-rows for 0 values and these NA values are also explained than as well.
-We perform a quick check to see this is a 100 percent the case.
+We now inspect those remaining missing delay values directly. Our
+working assumption is that in this dataset an `NA` delay sometimes means
+the scheduled and realised times are exactly equal, so the delay should
+effectively be `0`. If that is true, these are repairable missing values
+rather than rows we need to drop. We therefore test that assumption
+explicitly before imputing anything.
 
 ```{r fill_zero_delays}
 dep_na <- !is.na(missing_delays$CRS_DEP_TIME) & !is.na(missing_delays$DEP_TIME) &
@@ -474,7 +473,8 @@ cat("DEP_DELAY NA but not CRS_DEP_TIME==DEP_TIME:", sum(dep_na), "\n")
 cat("ARR_DELAY NA but not CRS_ARR_TIME==ARR_TIME:", sum(arr_na))
 ```
 
-Now we have analysed all NA values and begin to clean our data properly.
+At this point we have explained the main missing-value patterns, so we
+can move into cleaning with a clearer rationale.
 
 The workbook logic is visible here: we do not immediately delete all
 rows with missing values, because in operational data missingness is
@@ -495,10 +495,9 @@ flights too early and helps us explain each cleaning choice.
 
 ## 4.3 Cleaning and datatypes
 
-First, we do some final sanity checks for the values for variables. We
-check whether the distances are positive as well as airtime. We also
-check whether the departure and arrival delays are plausible which all
-seems to be the case.
+Before cleaning, we do a few final sanity checks. The purpose here is
+simple: if values are clearly impossible, we need to deal with that
+before we start deriving new variables from them.
 
 ```{r sanity_checks}
 cat("There are", sum(flights$DISTANCE <= 0), "negative distances.", "\n")
@@ -509,17 +508,16 @@ print("Arrival delay summary:")
 summary(flights$ARR_DELAY) 
 ```
 
-We create a df named `flights_clean` to not overwrite the `flights`
-variable that can be cleaned without overwriting our original data.
+We create a separate `flights_clean` object so the raw import remains
+available for reference.
 
 ```{r create_flights_clean}
 flights_clean <- flights
 ```
 
-We begin with adjusting in accordance with the remarks made in section
-3.2. We the `FL_DATE` column a datatype datetime and drop the unuseful
-column `Unnamed..27` and ensure that the columns are the correct
-datatypes.
+The first cleaning step follows directly from the structural inspection
+above. We convert `FL_DATE` to a real date and drop the unnamed column
+that contains no information.
 
 ```{r clean_types}
 drop_cols <- grep("^Unnamed", names(flights_clean), value = TRUE)
@@ -530,9 +528,9 @@ flights_clean$FL_DATE <- as.Date(flights_clean$FL_DATE)
 head(flights_clean, 4)
 ```
 
-Now we do some minimal cleaning make sure the datatypes are correct. We
-make the integer time columns POSIXct datetime columns to be able to
-treat the time correctly.
+Next we deal with the time variables. Because they are stored as `HHMM`
+integers, we convert them to proper datetime values so that time-based
+comparisons and derived hour variables become more reliable.
 
 ```{r datetime_fix_overwrite}
 hhmm_to_hhmm_str <- function(x) {
@@ -571,8 +569,9 @@ if (all(c("DEP_TIME","ARR_TIME") %in% names(flights_clean))) {
 head(flights_clean[, time_cols, drop=FALSE], 5)
 ```
 
-We now clean the NA values for the delay columns when the `CRS_DEP_TIME`
-and `DEP_TIME` are the same and idem for the arrival times.
+We now apply the repair rule discussed above: when the scheduled and
+actual times are identical and the delay is missing, we set the delay to
+`0`.
 
 ```{r impute_delays_posixct}
 idx_dep0 <- which(
@@ -587,7 +586,8 @@ idx_arr0 <- which(
   flights_clean$ARR_TIME == flights_clean$CRS_ARR_TIME
 )
 
-# vullen
+# Fill delay values with 0 only in the specific cases supported by the
+# equality check above.
 flights_clean$DEP_DELAY[idx_dep0] <- 0
 flights_clean$ARR_DELAY[idx_arr0] <- 0
 
@@ -596,8 +596,10 @@ head(flights_clean[idx_dep0, c("CRS_DEP_TIME","DEP_TIME","DEP_DELAY")])
 head(flights_clean[idx_arr0, c("CRS_ARR_TIME","ARR_TIME","ARR_DELAY")])
 ```
 
-Now we check if all the data is clean. First we delete all the cancelled
-and diverted rows because theserows are not relevant for our analysis.
+With the datatype fixes and repairable missing values handled, we can
+now define the modelling sample more clearly. We remove cancelled and
+diverted flights because the main task is to compare completed flights
+on meaningful arrival delay.
 
 ```{r filter_cancelled_diverted}
 keep <- (is.na(flights_clean$CANCELLED) | flights_clean$CANCELLED == 0) &
@@ -609,12 +611,10 @@ cat("Removed:", sum(!keep), "\n")
 cat("Rows after:", nrow(flights_clean))
 ```
 
-We decide to add some columns that make our analysis and modelling
-easier later on, such as `IS_DELAYED` day of the week column which might
-be interesting in the analysis and a column which contains a Boolean on
-whether a flight is significantly delayed (15 minutes or later).Now we
-add a column in which we see if a plane was significantly delayed. We
-also add a `MONTH` and `WEEKDAY` column.
+Once the analysis sample is fixed, the next step is feature creation. We
+derive a binary delay indicator for the main target, and we add calendar
+and scheduled-hour variables that are still known before departure and
+therefore fit the business setting.
 
 ```{r create_analysis_features}
 flights_clean$IS_DELAYED <- ifelse(flights_clean$ARR_DELAY >= 15, TRUE, FALSE)
@@ -662,39 +662,16 @@ than on an unclear mix of completed, cancelled and diverted flights.
 
 The workbook stresses that exploration should lead to explicit
 preparation choices. We therefore summarize our main findings in a short
-exploration log.
+table.
 
-```{r exploration_log}
-exploration_log <- data.frame(
-  variable_or_group = c(
-    "Unnamed columns",
-    "Cancelled/diverted flights",
-    "Departure/arrival times",
-    "Delay fields",
-    "Carrier/origin categories",
-    "Distance and elapsed time"
-  ),
-  observation = c(
-    "Unnamed column contains only missing values",
-    "Operational outcome fields are often missing for these flights",
-    "Stored as HHMM integers rather than usable times",
-    "Some zero-delay cases stored as NA when scheduled and actual times match",
-    "High-cardinality categories with uneven group sizes",
-    "Numeric variables look plausible but can contain influential extremes"
-  ),
-  action = c(
-    "Drop",
-    "Exclude from completed-flight modelling sample",
-    "Convert to POSIXct and derive scheduled hour features",
-    "Impute those cases with 0 when the equality check supports it",
-    "Use volume filters in visual ranking and factor encoding in models",
-    "Keep, but inspect visually and avoid unnecessary transformation unless analysis needs it"
-  ),
-  stringsAsFactors = FALSE
-)
-
-exploration_log
-```
+| Variable or group | Observation | Action |
+|------------------------|------------------------|------------------------|
+| Unnamed columns | Unnamed column contains only missing values | Drop |
+| Cancelled/diverted flights | Operational outcome fields are often missing for these flights | Exclude from completed-flight modelling sample |
+| Departure/arrival times | Stored as HHMM integers rather than usable times | Convert to POSIXct and derive scheduled hour features |
+| Delay fields | Some zero-delay cases are stored as `NA` when scheduled and actual times match | Impute those cases with `0` when the equality check supports it |
+| Carrier/origin categories | High-cardinality categories with uneven group sizes | Use volume filters in visual ranking and factor encoding in models |
+| Distance and elapsed time | Numeric variables look plausible but can contain influential extremes | Keep, but inspect visually and avoid unnecessary transformation unless the analysis needs it |
 
 ```{r duplicate_check}
 dup_key <- c("FL_DATE", "OP_CARRIER", "OP_CARRIER_FL_NUM", "ORIGIN", "DEST", "CRS_DEP_TIME")
@@ -725,17 +702,18 @@ in PCA, we explicitly do it there.
 
 # 5. Exploratory visualisation
 
-First we have a look at the base rate, this is the amount of how many
-flights are more than 15 minutes delayed
+We start the visual exploration with the base rate: the share of
+completed flights that arrive 15 minutes late or more. This is the
+natural first plot, because it tells us how common the target event is
+before we interpret any subgroup patterns.
 
 ```{r mean_delay_rate}
 delay_rate <- mean(flights_clean$IS_DELAYED)
 delay_rate 
 ```
 
-First we show a bar chart of our data that simply displays the amount of
-flights that are delayed and on-time. We see that around 18% of flights
-are significantly delayed.
+We first show a simple bar chart with delayed versus on-time flights.
+This gives a direct visual check of the class balance.
 
 ```{r class_distribution_plot}
 df_target <- data.frame(
@@ -747,7 +725,7 @@ df_target <- data.frame(
 
 ggplot(df_target, aes(x = class)) +
   geom_bar() +
-  labs(title = "Class distribution: delayed vs on-time", x = "", y = "amount of flights") +
+  labs(title = "Class distribution: delayed vs on-time", x = "", y = "Number of flights") +
   coord_flip()
 ```
 
@@ -897,7 +875,7 @@ ggplot(top_carriers, aes(x = reorder(OP_CARRIER, delay_rate), y = delay_rate)) +
   coord_flip() +
   scale_y_continuous(labels = pct_label) +
   labs(title = "Delay rate (>=15m) per airline (top 10, min volume filter)",
-       x = "Airplane", y = "Delay rate")
+       x = "Airline", y = "Delay rate")
 ```
 
 We use a minimum-volume filter before ranking carriers and airports.
@@ -1083,7 +1061,7 @@ first step is not choosing components yet, but deciding which variables
 should even go into PCA and clustering.
 
 | Variable | PCA role | Clustering role | Representation | Why |
-|----|----|----|----|----|
+|---------------|---------------|---------------|---------------|---------------|
 | `FL_DATE` | Transform | Transform | Do not use raw date; derive month/weekday information instead | Raw dates create arbitrary scale differences |
 | `OP_CARRIER` | Post hoc only | Post hoc only | No dummy expansion in unsupervised step | One-hot encoding carriers would add dimensions and dominate structure |
 | `OP_CARRIER_FL_NUM` | Exclude | Exclude | Identifier-like flight number; not analytically meaningful | Mostly identifies a flight record rather than a latent trait |
@@ -1133,7 +1111,7 @@ flights_structure$IS_WEEKEND <- ifelse(
 ```
 
 | Feature | Preparation | Why |
-|----|----|----|
+|------------------------|------------------------|------------------------|
 | `DISTANCE` | Z-score scaling only | This is already a meaningful numeric variable, so we only need to standardize the scale |
 | `CRS_ELAPSED_TIME` | Z-score scaling only | This is also a meaningful numeric variable, but we keep an eye on overlap with distance |
 | `SCHED_DEP_HOUR` | Cyclical encoding (`sin`/`cos`) + scaling | Raw HHMM values would create false distances between times |
@@ -1471,7 +1449,7 @@ so it is based on the average values in each cluster rather than on a
 hard external label. The goal is simply to make the clusters easier to
 talk about in the report.
 
-```{r cluster_archetypes}
+```{r cluster_archetypes, include=FALSE}
 describe_dep_period <- function(x) {
   if (x < 10) {
     "morning"
@@ -1533,14 +1511,30 @@ cluster_archetypes <- data.frame(
   stringsAsFactors = FALSE
 )
 
-cluster_archetypes
+cluster_archetype_text <- paste0(
+  "Cluster ", cluster_archetypes$cluster, " looks most like a ",
+  cluster_archetypes$archetype, ". ",
+  cluster_archetypes$description
+)
 ```
 
-This table is not meant as an exact classification of the flights. It is
-a practical summary that helps us describe what each cluster mainly
-looks like. That is enough for this workbook, because the purpose of the
-clustering is interpretation rather than building a final segmentation
-system.
+We do not treat these clusters as hard labels. They are just a practical
+way to describe the main flight types that appear in the sample. That is
+enough for this workbook, because the goal of clustering here is
+interpretation rather than building a final segmentation system.
+
+-   `r cluster_archetype_text[1]`
+
+-   `r cluster_archetype_text[2]`
+
+-   `r cluster_archetype_text[3]`
+
+-   `r cluster_archetype_text[4]`
+
+These short archetypes should be read as summaries, not as exact rules.
+They help us explain what each cluster mainly captures in terms of
+distance, departure timing, weekday versus weekend mix, and relative
+delay risk.
 
 ```{r cluster_density_plots}
 cluster_density_df <- cluster_profile_df
@@ -1597,17 +1591,23 @@ the better choice.
 
 # 7. Modelling
 
-In this section we follow the classification workbook more closely. The
-goal is not to try lots of complex models, but to compare a few clear
-ones on our delay problem. We focus mainly on the delayed class, because
-missing a real delay is worse than giving a false alarm.
+In this section we start to model our data. The goal is to compare
+models that are clearly useful for our delay problem. The focus will be
+mainly on the delayed class, this is because missing flagging a flight
+that has a real delay is worse than giving a flagging a flight and it
+eventually not having a delay. It must be noted that if this is the case
+it could seem that it is better to always install extra crew and be more
+prepared, however this is a trade-off for costs it is important to weigh
+these and find an optimum. This is hard to do without the data for these
+costs that is why it is chosen to punish take missing high risk a bit
+more but not unrealistically much.
 
 ## 7.1 Classification setup
 
-We prepare one modelling data set and then split it into training and
-testing data. The training data is used to estimate the classification
-rules, while the testing data is held back to inspect how the model
-behaves on unseen flights.
+We prepare a modelling data set by splitting our data set into training
+and testing data. The training data is as always used to estimate the
+classification rules, while the testing data is held back to inspect how
+the model behaves on unseen flights.
 
 ## 7.2 Preparing the modelling data
 
@@ -1773,6 +1773,22 @@ text(tree_plot_model, use.n = TRUE, all = TRUE, cex = 0.7)
 
 The C5.0 summary is still the main output, but this extra shallow tree
 makes the first split rules easier to read.
+
+One thing that can happen with this baseline tree is that it stays very
+small, or even collapses to a single root node. If that happens, the
+reason is usually not that the code failed, but that the model does not
+see any split that improves enough on the majority-class prediction. In
+our data, the delayed class is clearly smaller than the on-time class,
+so a very conservative tree can reduce a lot of training error by simply
+predicting `On_time` for almost everything.
+
+That is an important result in itself. It tells us that a plain baseline
+tree is too conservative for this problem and too focused on overall
+error. This fits the business setting only partly, because for us a
+missed real delay matters more than a false alarm. That is exactly why
+the next steps follow: after this baseline, we test approaches such as
+boosting and cost-sensitive classification that can push the model to
+pay more attention to delayed flights.
 
 ## 7.4 Inspecting tree behaviour on unseen data
 
@@ -2101,37 +2117,35 @@ without making the notebook too heavy.
 So far we mostly looked at class labels such as "Delayed" or "On_time".
 ROC curves and AUC add another view: they show how well the model ranks
 flights from lower to higher delay risk across many possible thresholds.
-We include this for the main models that give usable class
-probabilities.
+We only include this for models that return usable class probabilities.
+That is an important restriction here: the cost-sensitive C5.0 model is
+built to change the classification decision under asymmetric costs, so
+its output is not treated as an ordinary probability ranking for ROC/AUC
+purposes.
 
 ```{r roc_auc}
 # For ROC/AUC we need predicted probabilities instead of final class labels.
 tree_prob <- predict(model_tree, testing, type = "prob")[, "Delayed"]
-cost_prob <- predict(model_tree_cost, testing, type = "prob")[, "Delayed"]
 rf_prob   <- predict(model_rf, testing_rf, type = "prob")[, "Delayed"]
 
 # Each ROC curve shows how the trade-off changes when we move the decision threshold.
 roc_tree <- pROC::roc(testing$IS_DELAYED_15, tree_prob,
                       levels = c("On_time", "Delayed"), quiet = TRUE)
-roc_cost <- pROC::roc(testing$IS_DELAYED_15, cost_prob,
-                      levels = c("On_time", "Delayed"), quiet = TRUE)
 roc_rf   <- pROC::roc(testing_rf$IS_DELAYED_15, rf_prob,
                       levels = c("On_time", "Delayed"), quiet = TRUE)
 
 plot(roc_tree, col = "steelblue", main = "ROC curves on the testing data")
-lines(roc_cost, col = "firebrick")
 lines(roc_rf, col = "darkgreen")
 legend("bottomright",
-       legend = c("C5.0 tree", "Cost-sensitive C5.0", "Random forest"),
-       col = c("steelblue", "firebrick", "darkgreen"),
+       legend = c("C5.0 tree", "Random forest"),
+       col = c("steelblue", "darkgreen"),
        lwd = 2, bty = "n")
 
 # The AUC table gives one compact summary per model.
 auc_table <- data.frame(
-  model = c("C5.0 tree", "Cost-sensitive C5.0", "Random forest"),
+  model = c("C5.0 tree", "Random forest"),
   auc = c(
     as.numeric(pROC::auc(roc_tree)),
-    as.numeric(pROC::auc(roc_cost)),
     as.numeric(pROC::auc(roc_rf))
   )
 )
@@ -2147,6 +2161,12 @@ lower-risk ones. In the ROC plot, curves that sit higher and more to the
 left indicate better ranking performance. The AUC table then summarizes
 that graph in one value, but the graph itself is useful because it shows
 whether model differences are large or only modest.
+
+The cost-sensitive tree is left out of this section on purpose. That is
+not because it is unimportant, but because its output is calibrated to a
+cost rule rather than to a neutral probability scale. For that model,
+the confusion matrix, recall and precision are the more appropriate
+evaluation tools.
 
 ## 7.11 Model disagreement and simple voting
 
