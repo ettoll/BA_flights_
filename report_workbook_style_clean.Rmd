@@ -24,26 +24,26 @@ capacity. These decisions often have to be made quickly and without
 knowing the whole of the situation.
 
 Flight delays and cancellations are expensive for the airlines and
-irritating ans stressful for the passengers. Airlines have to deal with
-numerous problems including crew overtime, gate conflicts, aircraft
+stressful for the passengers. Airlines have to deal with numerous
+problems including crew overtime, gate conflicts, aircraft
 repositioning, compensation, rebooking work and reputational damage.
 
-**Problem:** A single delay almost always has repercussions for other
-flights as well. Flights are using the same planes and are therefor
-intertwined with their schedule. If one flight is delayed it creates
-more delays later in the day raising operational costs and reducing
-customer satisfaction.
+**Problem:** A single delay usually has repercussions for other flights
+as well. Flights are using the same planes and are therefor intertwined
+with their schedule. If one flight is delayed, it creates more delays
+later in the day raising operational costs and reducing customer
+satisfaction.
 
-The most challenging part for operation is that a lot of the decisions
-need to be made before a flight departs. At that point not all setbacks
-are known and therefor also not the final outcome for its departure. If
+The most challenging part of operations is that many decisions need to
+be made before a flight departs. At that point, not all setbacks are
+known, and therefore neither is the final outcome of the departure. If
 an airline were able to identify flights with a high delay risk far
 before departure, an appropiate solution can be thought beforehand.
 Preparing standby crew, adjusting gate plans, or increasing customer
 service capacity are examples of operations that the airline could
 impose beforehand so further delays are avoided or reduced. Delays would
-still happen but decreases the impact of a single delay for further
-delays, costs and customers dissatisfaction.
+still occur, but the impact of a single delay on further delays, costs,
+and customer dissatisfaction would be reduced.
 
 **Business question:** How can we estimate the probability that a
 scheduled flight will be delayed (more than 15 min) before departure?
@@ -68,14 +68,14 @@ This leads naturally to a predictive risk-scoring task based on
 historical U.S. domestic flight data. Before choosing the final task, we
 considered three possible targets:
 
--   **Classification A (delay):**
+-   **Classification I (delay):**
 
     **Target:** `IS_DELAYED_15 = 1` if `ARR_DELAY >= 15`, otherwise 0.
 
     This asks whether a completed flight arrives with a meaningful
     delay.
 
--   **Classification B (cancellation):**
+-   **Classification II (cancellation):**
 
     **Target:** `CANCELLED == 1`
 
@@ -87,7 +87,9 @@ considered three possible targets:
 
     This asks how many minutes of arrival delay we should expect.
 
-We choose Classification A as the main task. That choice follows from
+This asks how many minutes of arrival delay we should expect.
+
+We choose Classification I as the main task. That choice follows from
 the business question: operations teams mainly need an early warning
 about whether a flight is likely to become meaningfully delayed, because
 that is directly useful for reallocating attention and resources. This
@@ -98,20 +100,16 @@ We do not choose cancellation as the main task because cancellations are
 much rarer and therefore harder to model well. We also do not choose
 regression as the main task because predicting the exact number of delay
 minutes is harder to explain and less directly useful for the first
-operational decision. So the reasoning pipeline is:
-
--   the business problem is pre-departure resource allocation;
-
--   that requires a pre-departure risk signal;
-
--   therefore the main analytics task becomes binary classification of
-    meaningful arrival delay.
+operational decision. So, the reasoning pipeline is that the business
+problem is pre-departure resource allocation, which requires a
+pre-departure risk signal, and therefore the main analytics task becomes
+the binary classification of meaningful arrival delay.
 
 ## 1.3 Success criteria
 
 We define success from two angles. First, the model should answer the
-analytics question in a usable way. Second, the model should support the
-business problem in practice.
+analytics question in a useable way. Second, the model should support
+the business problem in practice.
 
 From an operational point of view, missing a real delay is usually worse
 than raising a false alarm. If the model says a flight will be on time
@@ -130,7 +128,7 @@ make sure we do not allocate too many unnecessary resources.
 # 2. Setup
 
 This section loads the packages used throughout the notebook so the
-workflow stays reproducible.
+report stays reproducible for all readers.
 
 ```{r setup}
 # CRAN mirror
@@ -138,16 +136,12 @@ local({r <- getOption("repos")
 r["CRAN"] <- "https://cran.rstudio.com/"
 options(repos = r)})
 
-# We keep the row limit flexible so we can switch between a quick check
-# and the full dataset without changing the rest of the notebook.
-N_READ <- -1
-
-# These are the main packages we use throughout the workbook.
+# These are the main packages we use throughout the workbook
 packages <- c("ggplot2", "Hmisc", "rsample", "gmodels", "C50", "randomForest",
   "factoextra", "lattice", "reshape2", "pROC"
 )
 
-# Install missing packages and load everything in one place.
+# Install missing packages and load everything
 for (i in packages) {
   if (!require(i, character.only = TRUE)) {
     install.packages(i, dependencies = TRUE)
@@ -162,114 +156,90 @@ set.seed(46748717)
 
 ## 3.1 Data in `data/` folder
 
-Here we read the flight data. The year can be changed through `YEAR`.
-Because the files are large, `N_READ` makes it possible to read either a
-smaller subset for a quick check or the full dataset with `-1`.
+Here, we read the flight data. The year can be changed through `YEAR`,
+because the files are large. For the analysis in this workbook we use
+the data of 2018.
 
 ```{r data_files}
 data_dir <- "data"
 YEAR <- 2018
 csv_path <- file.path(data_dir, paste0(YEAR, ".csv"))
-flights <- read.csv(csv_path, stringsAsFactors = FALSE, nrows = N_READ)
+flights <- read.csv(csv_path, stringsAsFactors = FALSE)
 ```
 
 ## 3.2 Read data
 
 We first inspect the dimensions and column names to understand what kind
-of data we have and what the unit of analysis appears to be.
+of data we are dealing with and what the scope and units of the analysis
+are.
 
 ```{r read_data}
 dim(flights)
 names(flights)
 ```
 
-The data file contains:
+The dataset contains:
 
 -   7,213,446 observations
 
 -   28 variables
 
-Each observation represents one commercial flight in 2018. We group the
-variables into a few practical categories so we can refer back to them
-more clearly later in the report.
+Each observation represents one commercial flight in 2018 in the United
+States of America. The variables represent information about these
+flights. Here, we print a concise summary.
 
--   **Flight identifiers:** FL_DATE, OP_CARRIER, OP_CARRIER_FL_NUM
+```{r summary }
+str(flights)
+```
 
--   **Route information:** ORIGIN, DEST
-
--   **Scheduled times:** CRS_DEP_TIME, CRS_ARR_TIME
-
--   **Actual flight performance:** DEP_TIME, ARR_TIME, DEP_DELAY,
-    ARR_DELAY
-
--   **Operational metrics:** TAXI_OUT, TAXI_IN, AIR_TIME
-
--   **Delay causes:** CARRIER_DELAY, WEATHER_DELAY, NAS_DELAY,
-    SECURITY_DELAY, LATE_AIRCRAFT_DELAY
-
--   **Flight status indicators:** CANCELLED, DIVERTED
-
-The variables can be described in the following categories:
-
-### Flight Identifiers
-
-| Variable          | Description        | Variable type           |
-|-------------------|--------------------|-------------------------|
-| FL_DATE           | Date of the flight | character (date string) |
-| OP_CARRIER        | Operating airline  | character               |
-| OP_CARRIER_FL_NUM | Flight number      | integer / numeric       |
-
-## Route information
-
-| Variable | Description               | Variable type     |
-|----------|---------------------------|-------------------|
-| ORIGIN   | Departure airport         | character         |
-| DEST     | Arrival airport           | character         |
-| DISTANCE | Distance between airports | integer / numeric |
-
-## Scheduled times
-
-| Variable         | Description               | Variable type                   |
-|------------------|-------------------------|------------------------------|
-| CRS_DEP_TIME     | Scheduled departure time  | integer / numeric (HHMM format) |
-| CRS_ARR_TIME     | Scheduled arrival time    | integer / numeric (HHMM format) |
-| CRS_ELAPSED_TIME | Scheduled flight duration | integer / numeric (minutes)     |
-
-## Actual flight performance
-
-| Variable  | Description           | Variable type                   |
-|-----------|-----------------------|---------------------------------|
-| DEP_TIME  | Actual departure time | integer / numeric (HHMM format) |
-| ARR_TIME  | Actual arrival time   | integer / numeric (HHMM format) |
-| DEP_DELAY | Departure delay       | integer / numeric (minutes)     |
-| ARR_DELAY | Arrival delay         | integer / numeric (minutes)     |
-| AIR_TIME  | Time spent in air     | integer / numeric (minutes)     |
-
-## Operational metrics
-
-| Variable   | Description              | Variable type                   |
-|------------|--------------------------|---------------------------------|
-| TAXI_OUT   | Taxi time before takeoff | integer / numeric (minutes)     |
-| TAXI_IN    | Taxi time after landing  | integer / numeric (minutes)     |
-| WHEELS_OFF | Takeoff time             | integer / numeric (HHMM format) |
-| WHEELS_ON  | Landing time             | integer / numeric (HHMM format) |
-
-## Flight status
-
-| Variable  | Description                 | Variable type |
-|-----------|-----------------------------|---------------|
-| CANCELLED | Indicates cancelled flights | binary (0/1)  |
-| DIVERTED  | Indicates diverted flights  | binary (0/1)  |
-
-## Delay causes
+From this we can see the variable types and the first values. By
+analysing we can write down the variable descriptions.
 
 | Variable | Description | Variable type |
-|------------------------|------------------------|------------------------|
-| CARRIER_DELAY | Delay caused by airline | integer / numeric (minutes) |
-| WEATHER_DELAY | Delay caused by weather | integer / numeric (minutes) |
-| NAS_DELAY | Delay caused by air traffic system | integer / numeric (minutes) |
-| SECURITY_DELAY | Delay caused by security | integer / numeric (minutes) |
-| LATE_AIRCRAFT_DELAY | Delay caused by late incoming aircraft | integer / numeric (minutes) |
+|----|----|----|
+| FL_DATE | Scheduled date of the flight | character (date string `YYYY-MM-DD` format) |
+| OP_CARRIER | Airline operating the flight | character |
+| OP_CARRIER_FL_NUM | Identifier number of the flight operated by the carrier | integer |
+| ORIGIN | Airport from which the flight departs | character |
+| DEST | Airport at which the flight arrives | character |
+| CRS_DEP_TIME | Scheduled departure time | integer (`HHMM` format) |
+| DEP_TIME | Actual departure time | numeric (`HHMM` format) |
+| DEP_DELAY | Difference in minutes between actual and scheduled departure time | numeric (minutes) |
+| TAXI_OUT | Time from leaving the departure gate until takeoff | numeric (minutes) |
+| WHEELS_OFF | Actual time at which the aircraft leaves the ground | numeric (`HHMM` format) |
+| WHEELS_ON | Actual time at which the aircraft touches down | numeric (`HHMM` format) |
+| TAXI_IN | Time from landing until arrival at the gate | numeric (minutes) |
+| CRS_ARR_TIME | Scheduled arrival time | integer (`HHMM` format) |
+| ARR_TIME | Actual arrival time | numeric (`HHMM` format) |
+| ARR_DELAY | Difference in minutes between actual and scheduled arrival time | numeric (minutes) |
+| CANCELLED | Indicator showing whether the flight was cancelled | numeric (binary) |
+| CANCELLATION_CODE | Reason code explaining why the flight was cancelled | character |
+| DIVERTED | Indicator showing whether the flight was diverted to another airport | numeric (binary) |
+| CRS_ELASPED_TIME | Scheduled total travel time from departure to arrival | numeric (minutes) |
+| ACTUAL_ELAPSED_TIME | Actual total travel time from departure to arrival | numeric (minutes) |
+| AIR_TIME | Total time the aircraft is in the air | numeric (minutes) |
+| DISTANCE | Flight distance between origin and destination airports | numeric (miles) |
+| CARRIER_DELAY | Delay attributed to the airline carrier | numeric (minutes) |
+| WEATHER_DELAY | Delay attributed to weather conditions | numeric (minutes) |
+| NAS_DELAY | Delay attributed to the National Airspace System | numeric (minutes) |
+| SECURITY_DELAY | Delay attributed to security-related issues | numeric (minutes) |
+| LATE_AIRCRAFT_DELAY | Delay caused by the late arrival of the incoming aircraft | numeric (minutes) |
+| Unnamed..27 | Unnamed column | logical |
+
+Now we group the variables into a few practical categories so we can
+refer back to them more easily later in the report.
+
+| Category | Variables |
+|----|----|
+| Flight identifiers | FL_DATE, OP_CARRIER, OP_CARRIER_FL_NUM |
+| Route information | ORIGIN, DEST |
+| Scheduled times | CRS_DEP_TIME, CRS_ARR_TIME |
+| Actual flight performance | DEP_TIME, ARR_TIME, DEP_DELAY, ARR_DELAY |
+| Operational metrics | TAXI_OUT, TAXI_IN, AIR_TIME |
+| Delay causes | CARRIER_DELAY, WEATHER_DELAY, NAS_DELAY, SECURITY_DELAY, LATE_AIRCRAFT_DELAY |
+| Flight status indicators | CANCELLED, DIVERTED |
+
+# 4. Data cleaning
 
 ## 4.1 Data summary
 
@@ -277,22 +247,18 @@ We start with a basic structural check of the data. This is important
 because before we decide how to clean or model anything, we first need
 to understand how the variables are stored.
 
-At this stage a few things stand out. `FL_DATE` is stored as text, so we
-will later convert it to a real date. Several scheduled and actual time
-variables are stored as integers in `HHMM` format rather than as usable
-time values, which makes direct time calculations awkward. By contrast,
-variables such as `TAXI_OUT` and `DEP_DELAY` are already stored as
+At this moment a few things stand out. `FL_DATE` is stored as text, so
+we will later convert it to a real date. Several scheduled and actual
+time variables are stored as integers in `HHMM` format rather than as
+usable time values, which makes direct time calculations easier.
+Variables such as `TAXI_OUT` and `DEP_DELAY` are already stored as
 minutes, which is suitable for analysis. We also see that `CANCELLED`
-and `DIVERTED` use `0/1` coding rather than logical `TRUE/FALSE`, which
-is fine as long as we handle it consistently.
+and `DIVERTED` use bineary `0` and `1` coding rather than logical
+`TRUE/FALSE`, which is fine as long as we handle it consistently.
 
-These observations directly motivate the next steps. First we inspect
+These observations directly lead to the next steps. First we inspect
 structure and missingness. Then we decide which datatype changes and
 cleaning steps are actually needed for the pre-departure analysis.
-
-```{r explore_basic}
-str(flights)
-```
 
 To align this notebook more closely with the workbook on exploration and
 preparation, we explicitly separate three questions:
@@ -665,7 +631,7 @@ preparation choices. We therefore summarize our main findings in a short
 table.
 
 | Variable or group | Observation | Action |
-|------------------------|------------------------|------------------------|
+|----|----|----|
 | Unnamed columns | Unnamed column contains only missing values | Drop |
 | Cancelled/diverted flights | Operational outcome fields are often missing for these flights | Exclude from completed-flight modelling sample |
 | Departure/arrival times | Stored as HHMM integers rather than usable times | Convert to POSIXct and derive scheduled hour features |
@@ -1061,7 +1027,7 @@ first step is not choosing components yet, but deciding which variables
 should even go into PCA and clustering.
 
 | Variable | PCA role | Clustering role | Representation | Why |
-|---------------|---------------|---------------|---------------|---------------|
+|----|----|----|----|----|
 | `FL_DATE` | Transform | Transform | Do not use raw date; derive month/weekday information instead | Raw dates create arbitrary scale differences |
 | `OP_CARRIER` | Post hoc only | Post hoc only | No dummy expansion in unsupervised step | One-hot encoding carriers would add dimensions and dominate structure |
 | `OP_CARRIER_FL_NUM` | Exclude | Exclude | Identifier-like flight number; not analytically meaningful | Mostly identifies a flight record rather than a latent trait |
@@ -1111,7 +1077,7 @@ flights_structure$IS_WEEKEND <- ifelse(
 ```
 
 | Feature | Preparation | Why |
-|------------------------|------------------------|------------------------|
+|----|----|----|
 | `DISTANCE` | Z-score scaling only | This is already a meaningful numeric variable, so we only need to standardize the scale |
 | `CRS_ELAPSED_TIME` | Z-score scaling only | This is also a meaningful numeric variable, but we keep an eye on overlap with distance |
 | `SCHED_DEP_HOUR` | Cyclical encoding (`sin`/`cos`) + scaling | Raw HHMM values would create false distances between times |
@@ -1767,8 +1733,13 @@ tree_plot_model <- rpart::rpart(
   control = rpart::rpart.control(maxdepth = 3, minsplit = 3000, cp = 0.001)
 )
 
-plot(tree_plot_model, uniform = TRUE, margin = 0.1)
-text(tree_plot_model, use.n = TRUE, all = TRUE, cex = 0.7)
+if (nrow(tree_plot_model$frame) > 1 &&
+    any(tree_plot_model$frame$var != "<leaf>")) {
+  plot(tree_plot_model, uniform = TRUE, margin = 0.1)
+  text(tree_plot_model, use.n = TRUE, all = TRUE, cex = 0.7)
+} else {
+  cat("The shallow rpart check also stayed at the root node, so there are no split conditions to plot here.\n")
+}
 ```
 
 The C5.0 summary is still the main output, but this extra shallow tree
@@ -2330,16 +2301,3 @@ that are already covered in the workbook:
 So overall, the workbook now covers the main analytical parts that would
 normally be expected. The last important step is still to knit the file
 and check whether the written interpretation matches the final output.
-
-# 9. Appendix
-
-## 9.1 Variable screening for PCA and clustering
-
-The main text already contains the screening and preparation decisions
-used for PCA and clustering. We reproduce the key tables here so the
-representation choices remain easy to review.
-
-```{r appendix_pca_screening}
-structure_screen
-prep_decisions
-```
