@@ -136,7 +136,7 @@ local({r <- getOption("repos")
 r["CRAN"] <- "https://cran.rstudio.com/"
 options(repos = r)})
 
-# These are the main packages we use throughout the workbook
+# Main packages 
 packages <- c("ggplot2", "Hmisc", "rsample", "gmodels", "C50", "randomForest",
   "factoextra", "lattice", "reshape2", "pROC"
 )
@@ -161,6 +161,7 @@ because the files are large. For the analysis in this workbook we use
 the data of 2018.
 
 ```{r data_files}
+# get data
 data_dir <- "data"
 YEAR <- 2018
 csv_path <- file.path(data_dir, paste0(YEAR, ".csv"))
@@ -174,6 +175,7 @@ of data we are dealing with and what the scope and units of the analysis
 are.
 
 ```{r read_data}
+# size and columns dataset
 dim(flights)
 names(flights)
 ```
@@ -189,81 +191,145 @@ States of America. The variables represent information about these
 flights. Here, we print a concise summary.
 
 ```{r summary }
+# print summary 
 str(flights)
 ```
 
 From this we can see the variable types and the first values. By
 analysing we can write down the variable descriptions.
 
-| Variable | Description | Variable type |
-|----|----|----|
-| FL_DATE | Scheduled date of the flight | character (date string `YYYY-MM-DD` format) |
-| OP_CARRIER | Airline operating the flight | character |
-| OP_CARRIER_FL_NUM | Identifier number of the flight operated by the carrier | integer |
-| ORIGIN | Airport from which the flight departs | character |
-| DEST | Airport at which the flight arrives | character |
-| CRS_DEP_TIME | Scheduled departure time | integer (`HHMM` format) |
-| DEP_TIME | Actual departure time | numeric (`HHMM` format) |
-| DEP_DELAY | Difference in minutes between actual and scheduled departure time | numeric (minutes) |
-| TAXI_OUT | Time from leaving the departure gate until takeoff | numeric (minutes) |
-| WHEELS_OFF | Actual time at which the aircraft leaves the ground | numeric (`HHMM` format) |
-| WHEELS_ON | Actual time at which the aircraft touches down | numeric (`HHMM` format) |
-| TAXI_IN | Time from landing until arrival at the gate | numeric (minutes) |
-| CRS_ARR_TIME | Scheduled arrival time | integer (`HHMM` format) |
-| ARR_TIME | Actual arrival time | numeric (`HHMM` format) |
-| ARR_DELAY | Difference in minutes between actual and scheduled arrival time | numeric (minutes) |
-| CANCELLED | Indicator showing whether the flight was cancelled | numeric (binary) |
-| CANCELLATION_CODE | Reason code explaining why the flight was cancelled | character |
-| DIVERTED | Indicator showing whether the flight was diverted to another airport | numeric (binary) |
-| CRS_ELASPED_TIME | Scheduled total travel time from departure to arrival | numeric (minutes) |
-| ACTUAL_ELAPSED_TIME | Actual total travel time from departure to arrival | numeric (minutes) |
-| AIR_TIME | Total time the aircraft is in the air | numeric (minutes) |
-| DISTANCE | Flight distance between origin and destination airports | numeric (miles) |
-| CARRIER_DELAY | Delay attributed to the airline carrier | numeric (minutes) |
-| WEATHER_DELAY | Delay attributed to weather conditions | numeric (minutes) |
-| NAS_DELAY | Delay attributed to the National Airspace System | numeric (minutes) |
-| SECURITY_DELAY | Delay attributed to security-related issues | numeric (minutes) |
-| LATE_AIRCRAFT_DELAY | Delay caused by the late arrival of the incoming aircraft | numeric (minutes) |
-| Unnamed..27 | Unnamed column | logical |
++----------------+-------------------------------+-------------------+
+| Variable       | Description                   | Variable type     |
++================+===============================+===================+
+| FL_DATE        | Scheduled date of the flight  | character (date   |
+|                |                               | string            |
+|                |                               | `YYYY-MM-DD`      |
+|                |                               | format)           |
++----------------+-------------------------------+-------------------+
+| OP_CARRIER     | Airline operating the flight  | character         |
++----------------+-------------------------------+-------------------+
+| OP_            | Identifier number of the      | integer           |
+| CARRIER_FL_NUM | flight operated by the        |                   |
+|                | carrier                       |                   |
++----------------+-------------------------------+-------------------+
+| ORIGIN         | Airport from which the flight | character         |
+|                | departs                       |                   |
++----------------+-------------------------------+-------------------+
+| DEST           | Airport at which the flight   | character         |
+|                | arrives                       |                   |
++----------------+-------------------------------+-------------------+
+| CRS_DEP_TIME   | Scheduled departure time      | integer (`HHMM`   |
+|                |                               | format)           |
++----------------+-------------------------------+-------------------+
+| DEP_TIME       | Actual departure time         | numeric (`HHMM`   |
+|                |                               | format)           |
++----------------+-------------------------------+-------------------+
+| DEP_DELAY      | Difference in minutes between | numeric (minutes) |
+|                | actual and scheduled          |                   |
+|                | departure time                |                   |
++----------------+-------------------------------+-------------------+
+| TAXI_OUT       | Time from leaving the         | numeric (minutes) |
+|                | departure gate until takeoff  |                   |
++----------------+-------------------------------+-------------------+
+| WHEELS_OFF     | Actual time at which the      | numeric (`HHMM`   |
+|                | aircraft leaves the ground    | format)           |
++----------------+-------------------------------+-------------------+
+| WHEELS_ON      | Actual time at which the      | numeric (`HHMM`   |
+|                | aircraft touches down         | format)           |
++----------------+-------------------------------+-------------------+
+| TAXI_IN        | Time from landing until       | numeric (minutes) |
+|                | arrival at the gate           |                   |
++----------------+-------------------------------+-------------------+
+| CRS_ARR_TIME   | Scheduled arrival time        | integer (`HHMM`   |
+|                |                               | format)           |
++----------------+-------------------------------+-------------------+
+| ARR_TIME       | Actual arrival time           | numeric (`HHMM`   |
+|                |                               | format)           |
++----------------+-------------------------------+-------------------+
+| ARR_DELAY      | Difference in minutes between | numeric (minutes) |
+|                | actual and scheduled arrival  |                   |
+|                | time                          |                   |
++----------------+-------------------------------+-------------------+
+| CANCELLED      | Indicator showing whether the | numeric (binary)  |
+|                | flight was cancelled          |                   |
++----------------+-------------------------------+-------------------+
+| CAN            | Reason code explaining why    | character         |
+| CELLATION_CODE | the flight was cancelled      |                   |
++----------------+-------------------------------+-------------------+
+| DIVERTED       | Indicator showing whether the | numeric (binary)  |
+|                | flight was diverted to        |                   |
+|                | another airport               |                   |
++----------------+-------------------------------+-------------------+
+| CR             | Scheduled total travel time   | numeric (minutes) |
+| S_ELASPED_TIME | from departure to arrival     |                   |
++----------------+-------------------------------+-------------------+
+| ACTUA          | Actual total travel time from | numeric (minutes) |
+| L_ELAPSED_TIME | departure to arrival          |                   |
++----------------+-------------------------------+-------------------+
+| AIR_TIME       | Total time the aircraft is in | numeric (minutes) |
+|                | the air                       |                   |
++----------------+-------------------------------+-------------------+
+| DISTANCE       | Flight distance between       | numeric (miles)   |
+|                | origin and destination        |                   |
+|                | airports                      |                   |
++----------------+-------------------------------+-------------------+
+| CARRIER_DELAY  | Delay attributed to the       | numeric (minutes) |
+|                | airline carrier               |                   |
++----------------+-------------------------------+-------------------+
+| WEATHER_DELAY  | Delay attributed to weather   | numeric (minutes) |
+|                | conditions                    |                   |
++----------------+-------------------------------+-------------------+
+| NAS_DELAY      | Delay attributed to the       | numeric (minutes) |
+|                | National Airspace System      |                   |
++----------------+-------------------------------+-------------------+
+| SECURITY_DELAY | Delay attributed to           | numeric (minutes) |
+|                | security-related issues       |                   |
++----------------+-------------------------------+-------------------+
+| LATE_          | Delay caused by the late      | numeric (minutes) |
+| AIRCRAFT_DELAY | arrival of the incoming       |                   |
+|                | aircraft                      |                   |
++----------------+-------------------------------+-------------------+
+| Unnamed..27    | Unnamed column                | logical           |
++----------------+-------------------------------+-------------------+
 
 Now we group the variables into a few practical categories so we can
 refer back to them more easily later in the report.
 
-| Category | Variables |
-|----|----|
-| Flight identifiers | FL_DATE, OP_CARRIER, OP_CARRIER_FL_NUM |
-| Route information | ORIGIN, DEST |
-| Scheduled times | CRS_DEP_TIME, CRS_ARR_TIME |
-| Actual flight performance | DEP_TIME, ARR_TIME, DEP_DELAY, ARR_DELAY |
-| Operational metrics | TAXI_OUT, TAXI_IN, AIR_TIME |
-| Delay causes | CARRIER_DELAY, WEATHER_DELAY, NAS_DELAY, SECURITY_DELAY, LATE_AIRCRAFT_DELAY |
-| Flight status indicators | CANCELLED, DIVERTED |
++------------------------+--------------------------------------------+
+| Category               | Variables                                  |
++========================+============================================+
+| Flight identifiers     | FL_DATE, OP_CARRIER, OP_CARRIER_FL_NUM     |
++------------------------+--------------------------------------------+
+| Route information      | ORIGIN, DEST                               |
++------------------------+--------------------------------------------+
+| Scheduled times        | CRS_DEP_TIME, CRS_ARR_TIME                 |
++------------------------+--------------------------------------------+
+| Actual flight          | DEP_TIME, ARR_TIME, DEP_DELAY, ARR_DELAY   |
+| performance            |                                            |
++------------------------+--------------------------------------------+
+| Operational metrics    | TAXI_OUT, TAXI_IN, AIR_TIME                |
++------------------------+--------------------------------------------+
+| Delay causes           | CARRIER_DELAY, WEATHER_DELAY, NAS_DELAY,   |
+|                        | SECURITY_DELAY, LATE_AIRCRAFT_DELAY        |
++------------------------+--------------------------------------------+
+| Flight status          | CANCELLED, DIVERTED                        |
+| indicators             |                                            |
++------------------------+--------------------------------------------+
 
 # 4. Data cleaning
 
 ## 4.1 Data summary
 
 We start with a basic structural check of the data. This is important
-because before we decide how to clean or model anything, we first need
-to understand how the variables are stored.
+because before we decide how to clean or model the data, we first need
+to understand how the variables are stored. We inspect structure and
+missing data points. Then we decide which datatype changes and cleaning
+steps are actually needed for the pre-departure analysis.
 
-At this moment a few things stand out. `FL_DATE` is stored as text, so
-we will later convert it to a real date. Several scheduled and actual
-time variables are stored as integers in `HHMM` format rather than as
-usable time values, which makes direct time calculations easier.
-Variables such as `TAXI_OUT` and `DEP_DELAY` are already stored as
-minutes, which is suitable for analysis. We also see that `CANCELLED`
-and `DIVERTED` use bineary `0` and `1` coding rather than logical
-`TRUE/FALSE`, which is fine as long as we handle it consistently.
+To better align this notebook with the workbook on exploration and
+preparation, we explicitly separate the analysis around three questions:
 
-These observations directly lead to the next steps. First we inspect
-structure and missingness. Then we decide which datatype changes and
-cleaning steps are actually needed for the pre-departure analysis.
-
-To align this notebook more closely with the workbook on exploration and
-preparation, we explicitly separate three questions:
-
--   What is the type and scale of each variable?
+-   What are the type and scale of each variable?
 
 -   Which variables show data quality issues or unusual structure?
 
@@ -273,10 +339,421 @@ The next sections answer these questions step by step. We focus on
 variables that are most relevant for a pre-departure delay analysis,
 rather than producing every possible plot for all 28 columns.
 
+## 4.2 Missing values overview and discussion
+
+We now inspect missing values. The point is not only to count `NA`s, but
+also to understand why they occur. In operational data, it is known that
+missingness can be structural rather than accidental. This makes it that
+in the next cleaning steps we should prioritize the reason for the
+missing value and not just on the amount. We start with counting the
+missing values per column so we can get a good overview of the missing
+values.
+
+```{r missingness}
+# calculate NA amount and the NA percentage per column
+na_count <- sapply(flights, function(x) sum(is.na(x)))
+na_pct   <- round(100 * na_count / nrow(flights), 2)
+
+na_table <- data.frame(
+  na_count = as.integer(na_count),
+  na_pct = na_pct
+)
+
+na_table <- na_table[order(-na_table$na_pct), ]
+na_table
+```
+
+This table suggests three obvious missingness patterns at first glance.
+First, `Unnamed..27` contains only missing values, does not carry useful
+information and can be dropped. Second, several operational variables
+such as `DEP_TIME`, `ARR_TIME`, `AIR_TIME`, `WHEELS_ON`, and
+`WHEELS_OFF` are missing in roughly the same small amount of rows. This
+leads us to think that there is a shared operational reason for these
+missing values rather than random data entry errors. Third, the
+delay-cause columns also seem to be jointly missing or jointly present.
+
+That leads to the next check. Before removing anything, we verify
+whether the delay causes columns have structurally missing fields.
+Logical thinking gives the impression that the missingness is because
+these columns only are filled when a substantial realised delay exists.
+If that is true, we should not treat those `NA`s as a data-quality
+problem.
+
+```{r delay-na-same}
+# check delay-cause missingness 
+cause_cols <- intersect(c("CARRIER_DELAY","WEATHER_DELAY",
+                    "NAS_DELAY","SECURITY_DELAY","LATE_AIRCRAFT_DELAY"), names(flights))
+delay15 <- !is.na(flights$ARR_DELAY) & flights$ARR_DELAY >= 15
+cause_present <- !is.na(flights[[cause_cols[1]]])
+
+miss <- is.na(flights[, cause_cols, drop=FALSE])
+same_na_rows <- all(apply(miss, 2, function(x) identical(which(x), which(miss[,1]))))
+
+# print concluson
+cat("All the delay causes with NA values are for the same row, is", same_na_rows, "\n")
+cat("Causes are present but there was no 15 min delay:", sum(cause_present & !delay15), "\n")
+cat("More than 15 min delay but cause is NA value:", sum(delay15 & !cause_present))
+```
+
+As you can see in the summary above, all delay-cause variables with
+missing values occur in the same row and there are no cases where causes
+are present without a 15 minute delay, nor cases where a delay exceeds
+15 minutes while the cause is missing. This indicates no structural data
+quality problem regarding the data quality.
+
+Next we check whether a delayed flight can have multiple recorded delay
+causes. This is useful context for interpretation later on, because it
+tells us whether delay causes behave like a single-label explanation or
+whether multiple operational problems can happen on the same flight.
+
+```{r cause-compact}
+# select multiple delay causes
+k <- rowSums(flights[cause_present, cause_cols, drop=FALSE] > 0)
+tab <- table(k)
+
+# calculate percentages
+multi_n <- sum(k > 1)
+total_n <- length(k)
+multi_pct <- round(100 * multi_n / total_n, 2)
+
+# print values 
+cat("Of the flights with delay causes,", multi_pct, "% have multiple causes for delay.")
+```
+
+This summary above indicates that delays are often caused by multiple
+factors rather than a single one. We now know that the delay-cause
+columns are structurally complete for their purpose.
+
+The next step is to check the missing values in the operational fields
+such as `ARR_DELAY` and `ARR_TIME`. Here the hypothesis is that many of
+those missing values belong to cancelled or diverted flights. If that is
+true, the missingness is again explained by the flight outcome rather
+than by poor data quality.
+
+```{r non_cancelled_missingness_check}
+# remove cancelled and diverted flights
+completed_flight_rows <- which(flights$CANCELLED == 0 & flights$DIVERTED == 0)
+completed_flights_df <- flights[completed_flight_rows, ]
+
+completed_na_count <- sapply(completed_flights_df, function(x) sum(is.na(x)))
+completed_na_pct   <- round(100 * completed_na_count / nrow(completed_flights_df), 2)
+
+#check remaining missing values 
+completed_missingness_table <- data.frame(
+  na_count_completed = as.integer(completed_na_count),
+  na_pct_completed = completed_na_pct
+)
+
+completed_missingness_table <- completed_missingness_table[order(-completed_missingness_table$na_pct_completed), ]
+completed_missingness_table
+```
+
+This table shows that cancelled or diverted flights explain almost all
+of the missingness in realised performance fields. After removing those
+rows, the only important remaining gaps are in `ARR_DELAY` and
+`DEP_DELAY` columns. That matters because `ARR_DELAY` is used to define
+our target, so we need a clear reason for these remaining missing values
+before moving on. We start by printing the rows where these `NA` values
+are still remaining so that we can begin to evaluate the reason.
+
+```{r check-missing-mostly-delays}
+# remaining rows with missing delay values 
+dep_delay_missing_rows <- which(is.na(completed_flights_df$DEP_DELAY)) 
+arr_delay_missing_rows <- which(is.na(completed_flights_df$ARR_DELAY))
+missing_delay_rows <- completed_flights_df[c(dep_delay_missing_rows, arr_delay_missing_rows), ]
+head(missing_delay_rows)
+```
+
+We now inspect those remaining missing `ARR_DELAY` and `DEP_DELAY`
+values. Looking at this table it is seen that in this dataset an `NA`
+means that the scheduled and realised times are exactly equal, so the
+delay should effectively be `0`. If that is true for all rows, these are
+repairable missing values rather than rows we need to drop. We test that
+assumption before imputing anything.
+
+```{r fill_zero_delays}
+# rows where scheduled and realised times are not the same but has NA value 
+dep_delay_is_zero_case <- !is.na(missing_delay_rows$CRS_DEP_TIME) & !is.na(missing_delay_rows$DEP_TIME) &
+                 is.na(missing_delay_rows$DEP_DELAY) &
+                 !missing_delay_rows$CRS_DEP_TIME == missing_delay_rows$DEP_TIME
+
+arr_delay_is_zero_case <- !is.na(missing_delay_rows$CRS_ARR_TIME) & !is.na(missing_delay_rows$ARR_TIME) &
+                 is.na(missing_delay_rows$ARR_DELAY) &
+                 !missing_delay_rows$CRS_ARR_TIME == missing_delay_rows$ARR_TIME
+
+# print conclusion
+cat("DEP_DELAY is a NA value but CRS_DEP_TIME is not equal to DEP_TIME:", sum(dep_delay_is_zero_case), "\n")
+cat("ARR_DELAY is a NA value but CRS_ARR_TIME is not equal to ARR_TIME:", sum(arr_delay_is_zero_case))
+```
+
+This supports our assumptions that missing delay values occur when
+scheduled and actual times are equal, and can thus be interpreted as
+zero minutes.
+
+At this point, we have explained the main missing value patterns. We can
+conclude that all the data quality of this dataset is actually really
+high. We can move on to cleaning with a clearer understanding and
+knowing that the data is complete.
+
+We shall not delete rows with missing values, because in the data the
+missingness seems to be informative. We first distinguish between:
+
+-   **structurally missing values:** for example delay causes that are
+    only recorded after substantial delays
+
+-   **outcome-related missing values:** for example flights that were
+    cancelled or diverted and therefore have no actual arrival metrics
+
+-   **repairable missing values:** for example cases where scheduled
+    time and realised time are equal and the delay can logically be set
+    to 0
+
+We take these different observations with us to the next section where
+we can clean the data and prepare it for our analysis.
+
+## 4.3 Cleaning and datatypes
+
+Before cleaning, we do a few final sanity checks by printing a detailed
+summary about the values.
+
+```{r summaries}
+summary(flights)
+```
+
+The purpose here is simple: if values are clearly impossible, we need to
+deal with that before we start deriving new variables from them. We look
+at the values for times and distance and see that there are no extreme
+or impossible values for delays and flight times. We can also see that
+no negative values occur for the time and distance columns, but do occur
+in the columns that represent delay in minutes which makes sense. This
+summary gives us the impression the data does not contain any very
+extreme or probable values for concern. We can now move on to the actual
+cleaning of the data.
+
+At this moment a few things stand out from the concise summary printed
+in 3.2 about the datatypes that occur in this dataset that might need to
+be changed for convenience.
+
+Firstly, `FL_DATE` is stored as date string, so we will later convert it
+to a datetime variable to handle and plot the dates more easily. Several
+scheduled and actual time variables are stored as integers in `HHMM`
+format as shown in the table in 3.2 rather than as usable time values,
+which makes direct time calculations easier. Variables such as
+`TAXI_OUT` and `DEP_DELAY` are already stored as numeric minutes, which
+are suitable for analysis. We also see that `CANCELLED` and `DIVERTED`
+use bineary `0` and `1` coding rather than logical `TRUE` and `FALSE`,
+which is fine as long as we handle it consistently and keep track of the
+meaning. These observations will directly motivate the next steps.
+
+We create a separate `flights_clean` object so the raw import remains
+available for reference.
+
+```{r create_flights_clean}
+# make a copy of raw data 
+flights_clean <- flights
+```
+
+The first cleaning step follows directly from the structural inspection
+above. We convert `FL_DATE` to a real date and drop the unnamed column
+that contains no information.
+
+```{r clean_types}
+# drop empty unnamed column and convert the flight date into datetime 
+drop_cols <- grep("^Unnamed", names(flights_clean), value = TRUE)
+flights_clean[drop_cols] <- NULL
+
+flights_clean$FL_DATE <- as.Date(flights_clean$FL_DATE)
+
+head(flights_clean, 4)
+```
+
+Next we deal with the time variables that are stored as `HHMM` integers,
+we convert them to proper datetime values so that time-based comparisons
+and derived hour variables become more reliable and more easy to plot.
+
+```{r datetime_fix_overwrite}
+# make a function that changes the hhmm to a hhmm string
+hhmm_to_hhmm_str <- function(x) {
+  x <- as.integer(x)
+  hh <- x %/% 100
+  mm <- x %% 100
+  out <- sprintf("%02d:%02d", hh, mm)
+  out[is.na(x) | mm > 59 | hh < 0 | hh > 29] <- NA
+  out
+}
+
+# select the appropiate columns
+time_cols <- intersect(c("WHEELS_OFF","WHEELS_ON","DEP_TIME","ARR_TIME","CRS_DEP_TIME","CRS_ARR_TIME"), names(flights_clean))
+
+# replace columns to POSIXct
+for (cn in time_cols) {
+  tmp_str <- hhmm_to_hhmm_str(flights_clean[[cn]])
+  flights_clean[[cn]] <- as.POSIXct(
+    paste(as.character(flights_clean$FL_DATE), tmp_str),
+    format = "%Y-%m-%d %H:%M",
+    tz = "UTC"
+  )
+}
+
+# keep overnight flights in mind: is ARR_TIME < DEP_TIME + one day
+if (all(c("DEP_TIME","ARR_TIME") %in% names(flights_clean))) {
+  overnight <- !is.na(flights_clean$DEP_TIME) &
+               !is.na(flights_clean$ARR_TIME) &
+               (flights_clean$ARR_TIME < flights_clean$DEP_TIME)
+
+  arrival_side <- intersect(c("ARR_TIME","WHEELS_ON","CRS_ARR_TIME"), time_cols)
+  for (cn in arrival_side) {
+    flights_clean[[cn]][overnight] <- flights_clean[[cn]][overnight] + 24*3600
+  }
+}
+
+head(flights_clean[, time_cols, drop=FALSE], 5)
+```
+
+We now fix the `NA` values occurrence in `ARR_DELAY` and `DEP_DELAY`
+columns that are present when the scheduled and actual times are
+identical and the delay is missing, we set the delay to `0`.
+
+```{r impute_delays_posixct}
+# select the rows where crs and actual time are the same 
+idx_dep0 <- which(
+  is.na(flights_clean$DEP_DELAY) &
+  !is.na(flights_clean$DEP_TIME) & !is.na(flights_clean$CRS_DEP_TIME) &
+  flights_clean$DEP_TIME == flights_clean$CRS_DEP_TIME
+)
+
+idx_arr0 <- which(
+  is.na(flights_clean$ARR_DELAY) &
+  !is.na(flights_clean$ARR_TIME) & !is.na(flights_clean$CRS_ARR_TIME) &
+  flights_clean$ARR_TIME == flights_clean$CRS_ARR_TIME
+)
+
+# delay values are 0 if equal crs as actual time 
+flights_clean$DEP_DELAY[idx_dep0] <- 0
+flights_clean$ARR_DELAY[idx_arr0] <- 0
+
+# print check
+head(flights_clean[idx_dep0, c("CRS_DEP_TIME","DEP_TIME","DEP_DELAY")])
+head(flights_clean[idx_arr0, c("CRS_ARR_TIME","ARR_TIME","ARR_DELAY")])
+```
+
+Now the needed datatype fixes are implemented and the repairable missing
+values are handled. We still need to remove cancelled and diverted
+flights because the main task is to compare completed flights on
+meaningful arrival delay as our problem statement stated in the
+beginning. The flights that are diverted and cancelled are not needed in
+our scope and cause `NA` values in the data that corrupt our data
+quality.
+
+```{r filter_cancelled_diverted}
+# delete diverted and cancelled flights to get completed-flight
+keep <- (is.na(flights_clean$CANCELLED) | flights_clean$CANCELLED == 0) &
+        (is.na(flights_clean$DIVERTED)  | flights_clean$DIVERTED  == 0)
+
+flights_clean <- flights_clean[keep, , drop = FALSE]
+
+cat("Removed:", sum(!keep), "\n")
+cat("Rows after:", nrow(flights_clean))
+```
+
+Now the appropriate sample is selected, the next step is feature
+creation for modeling. We insert a binary delay indicator for the main
+target of significant delay of 15 minutes The target is
+`ARR_DELAY >= 15`. This is the best definition for the business question
+because it illustrates whether the flight arrived with a significant
+delay. We have removed cancelled and diverted flights before defining
+this target, so the class labels are only assigned to completed flights.
+We also add calendar and scheduled-hour variables that are still known
+before departure and therefore fit the pre-departure condition.
+
+```{r create_analysis_features}
+# create feature variables
+flights_clean$IS_DELAYED <- ifelse(flights_clean$ARR_DELAY >= 15, TRUE, FALSE)
+flights_clean$WEEKDAY <- weekdays(flights_clean$FL_DATE)
+flights_clean$MONTH <- as.integer(format(flights_clean$FL_DATE, "%m"))
+flights_clean$SCHED_DEP_HOUR <- as.numeric(format(flights_clean$CRS_DEP_TIME, "%H")) +
+  as.numeric(format(flights_clean$CRS_DEP_TIME, "%M")) / 60
+flights_clean$SCHED_ARR_HOUR <- as.numeric(format(flights_clean$CRS_ARR_TIME, "%H")) +
+  as.numeric(format(flights_clean$CRS_ARR_TIME, "%M")) / 60
+```
+
+## 4.4 Exploration and preparation decisions
+
+The exploration of data that was conducted until now should lead to
+explicit preparation choices. We here summarize the main findings in a
+short table.
+
++----------------------+----------------------+----------------------+
+| Case                 | Observation          | Action               |
++======================+======================+======================+
+| Unnamed columns      | Unnamed column       | Drop                 |
+|                      | contains only        |                      |
+|                      | missing values       |                      |
++----------------------+----------------------+----------------------+
+| Cancelled or         | Operational outcome  | Exclude from flight  |
+| diverted flights     | fields are often     | modelling sample     |
+|                      | missing for these    |                      |
+|                      | flights              |                      |
++----------------------+----------------------+----------------------+
+| Departure and        | Stored as HHMM       | Convert to POSIXct   |
+| arrival times        | numerics rather than | and derive scheduled |
+|                      | usable times         | hour features        |
++----------------------+----------------------+----------------------+
+| Delay fields         | Zero-delay cases are | Impute with `0` when |
+|                      | stored as `NA`       | the equality check   |
+|                      |                      | calls for it         |
++----------------------+----------------------+----------------------+
+| Carrier and origin   | These are categories | Use volume filters   |
+| categories           | with uneven group    | in visual ranking    |
+|                      | sizes                | and factor encoding  |
+|                      |                      | in models            |
++----------------------+----------------------+----------------------+
+| Distance and elapsed | Numeric variables    | Keep, but inspect    |
+| time                 | look plausible       | visually and avoid   |
+|                      |                      | unnecessary          |
+|                      |                      | transformation       |
++----------------------+----------------------+----------------------+
+
+```{r duplicate_check}
+# duplicate check for flights 
+dup_key <- c("FL_DATE", "OP_CARRIER", "OP_CARRIER_FL_NUM", "ORIGIN", "DEST", "CRS_DEP_TIME")
+dup_key <- intersect(dup_key, names(flights_clean))
+
+duplicate_rows <- duplicated(flights_clean[, dup_key])
+
+data.frame(
+  key_columns_checked = paste(dup_key, collapse = ", "),
+  n_duplicate_rows = sum(duplicate_rows),
+  pct_duplicate_rows = round(100 * mean(duplicate_rows), 4)
+)
+```
+
+This check looks for duplicate flights and thus two rows describe the
+same scheduled flight. If there are a few or no duplicates, this
+supports the idea that each row represents one flight. If not, the
+duplicates need to be checked before we move on to the modelling part.
+
+Some steps that we learned during the lectures are not needed here. Data
+integration is not relevant yet because we currently work with one main
+flight file. Likewise, we do not apply global standardisation at this
+stage because our current models are tree-based and therefore do not
+require all predictors to be on the same scale. Where scaling does
+matter, such as in PCA, we apply it at that stage in specific.
+
+# 5. Exploratory visualisation
+
+We consider the columns that contain data that is available
+pre-departure: `DISTANCE`, `CRS_ELAPSED_TIME`, `DEP_DELAY` and
+`ARR_DELAY`.
+
 ```{r selected_numeric_diagnostics}
+# We focus on a small set of numeric variables that are either important
+# predictors or important for understanding the target.
 numeric_vars <- c("DISTANCE", "CRS_ELAPSED_TIME", "DEP_DELAY", "ARR_DELAY")
 numeric_vars <- intersect(numeric_vars, names(flights))
 
+# This summary gives us a quick first check of center, spread and
+# extreme values before we move on to plots.
 numeric_diagnostics <- data.frame(
   variable = numeric_vars,
   mean = sapply(flights[numeric_vars], function(x) round(mean(x, na.rm = TRUE), 2)),
@@ -296,6 +773,8 @@ median, or an extreme maximum relative to the bulk of the data, because
 that signals skewness or potentially influential observations.
 
 ```{r selected_numeric_plots}
+# We use a large sample instead of the full dataset so these diagnostic
+# plots stay readable and render much faster.
 set.seed(46748717)
 idx_diag <- sample(seq_len(nrow(flights)), min(200000, nrow(flights)))
 flights_diag <- flights[idx_diag, ]
@@ -316,364 +795,14 @@ raw distribution helps justify why a classification target is more
 practical here than modelling raw delay minutes directly: the delay
 distribution is highly skewed and dominated by a long right tail.
 
-## 4.2 Missing values overview and discussion
-
-We now inspect missing values. The point is not only to count `NA`s, but
-also to understand why they occur. In operational data, missingness can
-be structural rather than accidental, so the next cleaning step should
-depend on the reason for the missing value and not just on the count.
-
-```{r missingness}
-na_count <- sapply(flights, function(x) sum(is.na(x)))
-na_pct   <- round(100 * na_count / nrow(flights), 2)
-
-na_table <- data.frame(
-  na_count = as.integer(na_count),
-  na_pct = na_pct
-)
-
-na_table <- na_table[order(-na_table$na_pct), ]
-na_table
-```
-
-The table already suggests three different missingness patterns. First,
-`Unnamed..27` contains only missing values, so it does not carry useful
-information and can be dropped. Second, several operational variables
-such as `DEP_TIME`, `ARR_TIME`, `AIR_TIME`, `WHEELS_ON`, and
-`WHEELS_OFF` are missing in roughly the same small share of rows. That
-often indicates a shared operational reason rather than random data
-entry errors. Third, the delay-cause columns also seem to be jointly
-missing or jointly present.
-
-That leads to the next check. Before removing anything, we verify
-whether the delay-cause columns behave as structurally missing fields:
-they should only be filled when a substantial realised delay exists. If
-that is true, we should not treat those `NA`s as a classic data-quality
-problem.
-
-```{r delay-na-same}
-cause_cols <- intersect(c("CARRIER_DELAY","WEATHER_DELAY",
-                    "NAS_DELAY","SECURITY_DELAY","LATE_AIRCRAFT_DELAY"), names(flights))
-delay15 <- !is.na(flights$ARR_DELAY) & flights$ARR_DELAY >= 15
-cause_present <- !is.na(flights[[cause_cols[1]]])
-
-miss <- is.na(flights[, cause_cols, drop=FALSE])
-same_na_rows <- all(apply(miss, 2, function(x) identical(which(x), which(miss[,1]))))
-
-cat("All the delay causes with NA values are for the same row, is", same_na_rows, "\n")
-cat("Causes are present but there was no 15 min delay:", sum(cause_present & !delay15), "\n")
-cat("More than 15 min delay but cause is NA value:", sum(delay15 & !cause_present))
-```
-
-Next we check whether a delayed flight can have multiple recorded delay
-causes. This is useful context for interpretation later on, because it
-tells us whether delay causes behave like a single-label explanation or
-whether multiple operational problems can happen on the same flight.
-
-```{r cause-compact}
-k <- rowSums(flights[cause_present, cause_cols, drop=FALSE] > 0)
-tab <- table(k)
-
-multi_n <- sum(k > 1)
-total_n <- length(k)
-multi_pct <- round(100 * multi_n / total_n, 2)
-
-cat("Of the flights with delay causes,", multi_pct, "% have multiple causes for delay.")
-```
-
-We now know that the delay-cause columns are structurally complete for
-their purpose. The next step is to check the missing values in realised
-operational fields such as `ARR_DELAY` and `ARR_TIME`. Here the working
-assumption is that many of those missing values belong to cancelled or
-diverted flights. If that is true, the missingness is again explained by
-the flight outcome rather than by poor data quality.
-
-```{r non_cancelled_missingness_check}
-flights_wo_cancelled <- which(flights$CANCELLED == 0 & flights$DIVERTED == 0)
-flights_wo_cancelled_df <- flights[flights_wo_cancelled, ]
-
-na_count_wo_cd <- sapply(flights_wo_cancelled_df, function(x) sum(is.na(x)))
-na_pct_wo_cd   <- round(100 * na_count_wo_cd / nrow(flights_wo_cancelled_df), 2)
-
-na_table_wo_cd <- data.frame(
-  variable = names(flights_wo_cancelled_df),
-  na_count_wo_cd = as.integer(na_count_wo_cd),
-  na_pct_wo_cd = na_pct_wo_cd
-)
-
-na_table_wo_cd <- na_table_wo_cd[order(-na_table_wo_cd$na_pct_wo_cd), ]
-na_table_wo_cd
-```
-
-This table shows that cancelled or diverted flights explain almost all
-of the missingness in realised performance fields. After removing those
-rows, the only important remaining gaps are in `ARR_DELAY` and
-`DEP_DELAY`. That matters because `ARR_DELAY` is used to define our
-target, so we need a clear rule for these remaining cases before moving
-on.
-
-```{r check-missing-mostly-delays}
-dep_delays_missing <- which(is.na(flights_wo_cancelled_df$DEP_DELAY)) 
-arr_delays_missing <- which(is.na(flights_wo_cancelled_df$ARR_DELAY))
-missing_delays <- flights_wo_cancelled_df[c(dep_delays_missing, arr_delays_missing), ]
-head(missing_delays)
-```
-
-We now inspect those remaining missing delay values directly. Our
-working assumption is that in this dataset an `NA` delay sometimes means
-the scheduled and realised times are exactly equal, so the delay should
-effectively be `0`. If that is true, these are repairable missing values
-rather than rows we need to drop. We therefore test that assumption
-explicitly before imputing anything.
-
-```{r fill_zero_delays}
-dep_na <- !is.na(missing_delays$CRS_DEP_TIME) & !is.na(missing_delays$DEP_TIME) &
-                 is.na(missing_delays$DEP_DELAY) &
-                 missing_delays$CRS_DEP_TIME == missing_delays$DEP_TIME
-
-arr_na <- !is.na(missing_delays$CRS_ARR_TIME) & !is.na(missing_delays$ARR_TIME) &
-                 is.na(missing_delays$ARR_DELAY) &
-                 missing_delays$CRS_ARR_TIME == missing_delays$ARR_TIME
-
-cat("DEP_DELAY NA but not CRS_DEP_TIME==DEP_TIME:", sum(dep_na), "\n")
-cat("ARR_DELAY NA but not CRS_ARR_TIME==ARR_TIME:", sum(arr_na))
-```
-
-At this point we have explained the main missing-value patterns, so we
-can move into cleaning with a clearer rationale.
-
-The workbook logic is visible here: we do not immediately delete all
-rows with missing values, because in operational data missingness is
-often informative. We first distinguish between:
-
--   structurally missing values, for example delay causes that are only
-    recorded after substantial delays;
-
--   outcome-related missing values, for example flights that were
-    cancelled or diverted and therefore have no realised arrival
-    metrics;
-
--   repairable missing values, for example cases where scheduled time
-    and realised time are equal and the delay can logically be set to 0.
-
-This distinction matters because it prevents us from throwing away valid
-flights too early and helps us explain each cleaning choice.
-
-## 4.3 Cleaning and datatypes
-
-Before cleaning, we do a few final sanity checks. The purpose here is
-simple: if values are clearly impossible, we need to deal with that
-before we start deriving new variables from them.
-
-```{r sanity_checks}
-cat("There are", sum(flights$DISTANCE <= 0), "negative distances.", "\n")
-cat("There are", sum(flights$AIR_TIME <= 0, na.rm = TRUE) , "negative airtimes.", "\n")
-print("Departure delay summary:")
-summary(flights$DEP_DELAY) 
-print("Arrival delay summary:")
-summary(flights$ARR_DELAY) 
-```
-
-We create a separate `flights_clean` object so the raw import remains
-available for reference.
-
-```{r create_flights_clean}
-flights_clean <- flights
-```
-
-The first cleaning step follows directly from the structural inspection
-above. We convert `FL_DATE` to a real date and drop the unnamed column
-that contains no information.
-
-```{r clean_types}
-drop_cols <- grep("^Unnamed", names(flights_clean), value = TRUE)
-flights_clean[drop_cols] <- NULL
-
-flights_clean$FL_DATE <- as.Date(flights_clean$FL_DATE)
-
-head(flights_clean, 4)
-```
-
-Next we deal with the time variables. Because they are stored as `HHMM`
-integers, we convert them to proper datetime values so that time-based
-comparisons and derived hour variables become more reliable.
-
-```{r datetime_fix_overwrite}
-hhmm_to_hhmm_str <- function(x) {
-  x <- as.integer(x)
-  hh <- x %/% 100
-  mm <- x %% 100
-  out <- sprintf("%02d:%02d", hh, mm)
-  out[is.na(x) | mm > 59 | hh < 0 | hh > 29] <- NA
-  out
-}
-
-time_cols <- intersect(c("WHEELS_OFF","WHEELS_ON","DEP_TIME","ARR_TIME","CRS_DEP_TIME","CRS_ARR_TIME"), names(flights_clean))
-
-# Replace columns to POSIXct
-for (cn in time_cols) {
-  tmp_str <- hhmm_to_hhmm_str(flights_clean[[cn]])
-  flights_clean[[cn]] <- as.POSIXct(
-    paste(as.character(flights_clean$FL_DATE), tmp_str),
-    format = "%Y-%m-%d %H:%M",
-    tz = "UTC"
-  )
-}
-
-# Overnight: is ARR_TIME < DEP_TIME + one day
-if (all(c("DEP_TIME","ARR_TIME") %in% names(flights_clean))) {
-  overnight <- !is.na(flights_clean$DEP_TIME) &
-               !is.na(flights_clean$ARR_TIME) &
-               (flights_clean$ARR_TIME < flights_clean$DEP_TIME)
-
-  arrival_side <- intersect(c("ARR_TIME","WHEELS_ON","CRS_ARR_TIME"), time_cols)
-  for (cn in arrival_side) {
-    flights_clean[[cn]][overnight] <- flights_clean[[cn]][overnight] + 24*3600
-  }
-}
-
-head(flights_clean[, time_cols, drop=FALSE], 5)
-```
-
-We now apply the repair rule discussed above: when the scheduled and
-actual times are identical and the delay is missing, we set the delay to
-`0`.
-
-```{r impute_delays_posixct}
-idx_dep0 <- which(
-  is.na(flights_clean$DEP_DELAY) &
-  !is.na(flights_clean$DEP_TIME) & !is.na(flights_clean$CRS_DEP_TIME) &
-  flights_clean$DEP_TIME == flights_clean$CRS_DEP_TIME
-)
-
-idx_arr0 <- which(
-  is.na(flights_clean$ARR_DELAY) &
-  !is.na(flights_clean$ARR_TIME) & !is.na(flights_clean$CRS_ARR_TIME) &
-  flights_clean$ARR_TIME == flights_clean$CRS_ARR_TIME
-)
-
-# Fill delay values with 0 only in the specific cases supported by the
-# equality check above.
-flights_clean$DEP_DELAY[idx_dep0] <- 0
-flights_clean$ARR_DELAY[idx_arr0] <- 0
-
-# check
-head(flights_clean[idx_dep0, c("CRS_DEP_TIME","DEP_TIME","DEP_DELAY")])
-head(flights_clean[idx_arr0, c("CRS_ARR_TIME","ARR_TIME","ARR_DELAY")])
-```
-
-With the datatype fixes and repairable missing values handled, we can
-now define the modelling sample more clearly. We remove cancelled and
-diverted flights because the main task is to compare completed flights
-on meaningful arrival delay.
-
-```{r filter_cancelled_diverted}
-keep <- (is.na(flights_clean$CANCELLED) | flights_clean$CANCELLED == 0) &
-        (is.na(flights_clean$DIVERTED)  | flights_clean$DIVERTED  == 0)
-
-flights_clean <- flights_clean[keep, , drop = FALSE]
-
-cat("Removed:", sum(!keep), "\n")
-cat("Rows after:", nrow(flights_clean))
-```
-
-Once the analysis sample is fixed, the next step is feature creation. We
-derive a binary delay indicator for the main target, and we add calendar
-and scheduled-hour variables that are still known before departure and
-therefore fit the business setting.
-
-```{r create_analysis_features}
-flights_clean$IS_DELAYED <- ifelse(flights_clean$ARR_DELAY >= 15, TRUE, FALSE)
-flights_clean$WEEKDAY <- weekdays(flights_clean$FL_DATE)
-flights_clean$MONTH <- as.integer(format(flights_clean$FL_DATE, "%m"))
-flights_clean$SCHED_DEP_HOUR <- as.numeric(format(flights_clean$CRS_DEP_TIME, "%H")) +
-  as.numeric(format(flights_clean$CRS_DEP_TIME, "%M")) / 60
-flights_clean$SCHED_ARR_HOUR <- as.numeric(format(flights_clean$CRS_ARR_TIME, "%H")) +
-  as.numeric(format(flights_clean$CRS_ARR_TIME, "%M")) / 60
-```
-
-The target is now based on `ARR_DELAY >= 15`. This is the cleanest
-definition for the business question because it captures whether the
-flight ultimately arrived with a meaningful disruption. We remove
-cancelled and diverted flights before defining this target, so the class
-labels are only assigned to completed flights.
-
-```{r cleaning_summary}
-cleaning_summary <- data.frame(
-  step = c(
-    "Original rows",
-    "After removing cancelled/diverted flights",
-    "Rows with defined delay target"
-  ),
-  n_rows = c(
-    nrow(flights),
-    nrow(flights_clean),
-    sum(!is.na(flights_clean$IS_DELAYED))
-  )
-)
-
-cleaning_summary$share_of_original <- round(
-  100 * cleaning_summary$n_rows / cleaning_summary$n_rows[1], 2
-)
-
-cleaning_summary
-```
-
-The table above makes the cleaning impact transparent. This is useful in
-the workbook context because it shows that our later analysis is based
-on a clearly defined subset of operationally comparable flights, rather
-than on an unclear mix of completed, cancelled and diverted flights.
-
-## 4.4 Exploration log and preparation decisions
-
-The workbook stresses that exploration should lead to explicit
-preparation choices. We therefore summarize our main findings in a short
-table.
-
-| Variable or group | Observation | Action |
-|----|----|----|
-| Unnamed columns | Unnamed column contains only missing values | Drop |
-| Cancelled/diverted flights | Operational outcome fields are often missing for these flights | Exclude from completed-flight modelling sample |
-| Departure/arrival times | Stored as HHMM integers rather than usable times | Convert to POSIXct and derive scheduled hour features |
-| Delay fields | Some zero-delay cases are stored as `NA` when scheduled and actual times match | Impute those cases with `0` when the equality check supports it |
-| Carrier/origin categories | High-cardinality categories with uneven group sizes | Use volume filters in visual ranking and factor encoding in models |
-| Distance and elapsed time | Numeric variables look plausible but can contain influential extremes | Keep, but inspect visually and avoid unnecessary transformation unless the analysis needs it |
-
-```{r duplicate_check}
-dup_key <- c("FL_DATE", "OP_CARRIER", "OP_CARRIER_FL_NUM", "ORIGIN", "DEST", "CRS_DEP_TIME")
-dup_key <- intersect(dup_key, names(flights_clean))
-
-duplicate_rows <- duplicated(flights_clean[, dup_key])
-
-data.frame(
-  key_columns_checked = paste(dup_key, collapse = ", "),
-  n_duplicate_rows = sum(duplicate_rows),
-  pct_duplicate_rows = round(100 * mean(duplicate_rows), 4)
-)
-```
-
-This duplicate check follows the workbook logic that cleaning is not
-only about missing values. In this data set, the practical question is
-whether two rows appear to describe the same scheduled flight. If this
-count is small or zero, that supports the assumption that the unit of
-analysis is one row per flight. If it is not, the duplicates need manual
-inspection before modelling.
-
-Some workbook preparation steps are not needed here. Data integration is
-not relevant yet because we currently work with one main flight file.
-Likewise, we do not apply global standardization at this stage because
-our current models are tree-based and therefore do not require all
-predictors to be on the same scale. Where scaling does matter, such as
-in PCA, we explicitly do it there.
-
-# 5. Exploratory visualisation
-
 We start the visual exploration with the base rate: the share of
 completed flights that arrive 15 minutes late or more. This is the
 natural first plot, because it tells us how common the target event is
 before we interpret any subgroup patterns.
 
 ```{r mean_delay_rate}
+# This gives the overall base rate of delayed flights, which we use as a
+# reference point for the rest of the analysis.
 delay_rate <- mean(flights_clean$IS_DELAYED)
 delay_rate 
 ```
@@ -682,6 +811,8 @@ We first show a simple bar chart with delayed versus on-time flights.
 This gives a direct visual check of the class balance.
 
 ```{r class_distribution_plot}
+# We turn the logical target into readable class labels for a simple
+# class-balance plot.
 df_target <- data.frame(
   class = factor(
     ifelse(flights_clean$IS_DELAYED, "Delayed (15 min)", "On time"),
@@ -704,6 +835,8 @@ evaluate models later, because a model can look acceptable on accuracy
 while still doing a poor job on the delayed flights we care about most.
 
 ```{r numeric_vs_target_boxplots}
+# We compare planned characteristics between delayed and on-time flights
+# on a large sample so the boxplots remain readable.
 set.seed(46748717)
 idx_box <- sample(seq_len(nrow(flights_clean)), min(150000, nrow(flights_clean)))
 flights_box <- flights_clean[idx_box, ]
@@ -752,6 +885,8 @@ itself changes, month looks like a useful explanatory variable rather
 than just a background descriptor.
 
 ```{r monthly_delay_patterns}
+# We combine monthly delay rate and monthly flight volume so we can see
+# whether seasonality reflects risk, volume, or both.
 df_month_rate <- aggregate(IS_DELAYED ~ MONTH, flights_clean, function(x) mean(x, na.rm = TRUE))
 df_month_n    <- aggregate(IS_DELAYED ~ MONTH, flights_clean, length)
 names(df_month_n)[2] <- "n"
@@ -783,6 +918,8 @@ words, weekday seems more like a supporting variable than one of the
 strongest drivers in the notebook.
 
 ```{r weekday_delay_rates}
+# This plot checks whether weekday on its own already shows a clear
+# pattern in delay risk.
 weekday_levels <- c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 
 df_wday_rate <- aggregate(IS_DELAYED ~ WEEKDAY, flights_clean, mean)
@@ -798,6 +935,8 @@ ggplot(df_wday_rate, aes(x = WEEKDAY, y = delay_rate)) +
 ```
 
 ```{r weekday_hour_heatmap}
+# We combine weekday and departure hour because the interaction is often
+# more informative than weekday averages alone.
 df_hw <- flights_clean[, c("WEEKDAY", "SCHED_DEP_HOUR", "IS_DELAYED")]
 df_hw$DEP_HOUR_BIN <- floor(df_hw$SCHED_DEP_HOUR)
 df_hw <- aggregate(IS_DELAYED ~ WEEKDAY + DEP_HOUR_BIN, df_hw, mean)
@@ -822,6 +961,8 @@ day matters more than weekday alone, and that it makes sense to keep a
 departure-time feature in the later models.
 
 ```{r carrier_delay_rates}
+# We rank airlines only after applying a minimum-volume filter, so rare
+# carriers do not dominate the chart by coincidence.
 MIN_N_CARRIER <- 5000
 
 carrier_rate <- aggregate(IS_DELAYED ~ OP_CARRIER, flights_clean, mean)
@@ -861,6 +1002,8 @@ We do not interpret that as a causal airline effect by itself, but it
 does justify keeping carrier information in the later supervised models.
 
 ```{r origin_delay_rates}
+# We apply the same stability idea to origin airports before comparing
+# their delay rates.
 MIN_N_AIRPORT <- 20000
 
 origin_rate <- aggregate(IS_DELAYED ~ ORIGIN, flights_clean, mean)
@@ -884,6 +1027,8 @@ ggplot(top_origins, aes(x = reorder(ORIGIN, delay_rate), y = delay_rate)) +
 ```
 
 ```{r origin_volume_vs_delay}
+# This scatterplot shows delay risk and airport volume together, which
+# is more useful operationally than ranking by rate alone.
 origin_top50_vol <- origin_summary[order(-origin_summary$n), ][1:50, ]
 
 ggplot(origin_top50_vol, aes(x = n, y = delay_rate)) +
@@ -991,6 +1136,8 @@ too unstable to read. That choice is meant to make the plot more
 reliable, not to change the underlying pattern.
 
 ```{r route_risk_summary}
+# At route level we again keep only high-volume combinations so the top
+# rows reflect stable patterns rather than rare routes.
 route_summary <- aggregate(IS_DELAYED ~ ORIGIN + DEST, flights_clean, mean)
 route_n <- aggregate(IS_DELAYED ~ ORIGIN + DEST, flights_clean, length)
 names(route_summary)[3] <- "delay_rate"
@@ -1026,23 +1173,132 @@ We use PCA here to get a quick view of the structure in the data. The
 first step is not choosing components yet, but deciding which variables
 should even go into PCA and clustering.
 
-| Variable | PCA role | Clustering role | Representation | Why |
-|----|----|----|----|----|
-| `FL_DATE` | Transform | Transform | Do not use raw date; derive month/weekday information instead | Raw dates create arbitrary scale differences |
-| `OP_CARRIER` | Post hoc only | Post hoc only | No dummy expansion in unsupervised step | One-hot encoding carriers would add dimensions and dominate structure |
-| `OP_CARRIER_FL_NUM` | Exclude | Exclude | Identifier-like flight number; not analytically meaningful | Mostly identifies a flight record rather than a latent trait |
-| `ORIGIN` | Post hoc only | Post hoc only | Retain for post hoc interpretation, not as dummy set | Airport dummies would mainly recover airport labels rather than shared structure |
-| `DEST` | Post hoc only | Post hoc only | Retain for post hoc interpretation, not as dummy set | Airport dummies would mainly recover airport labels rather than shared structure |
-| `DISTANCE` | Keep | Keep | Use as numeric route-length feature | Operationally meaningful and known before departure |
-| `CRS_DEP_TIME` | Transform | Transform | Convert to cyclical sin/cos features | Raw HHMM values are not valid linear distances |
-| `CRS_ARR_TIME` | Transform | Transform | Convert to cyclical sin/cos features | Raw HHMM values are not valid linear distances |
-| `CRS_ELAPSED_TIME` | Keep | Watch for redundancy | Use as numeric schedule-length feature | Operationally meaningful and known before departure |
-| `DEP_TIME / ARR_TIME / WHEELS_*` | Exclude | Exclude | Known only after departure/arrival | Post-event information must be excluded |
-| `DEP_DELAY / ARR_DELAY` | Exclude | Exclude | Leakage / target-adjacent outcome information | Would force PCA/clustering to recover realised delay instead of latent structure |
-| Delay-cause columns | Exclude | Exclude | Recorded after the event and therefore leakage | Pure leakage for pre-departure analysis |
-| `CANCELLED / DIVERTED` | Exclude | Exclude | Used only as sample filter, not as features | These variables already define which rows remain in the analysis |
-| `MONTH` | Transform | Transform | Convert to cyclical sin/cos features | Month 12 is adjacent to month 1, so linear coding is inappropriate |
-| `WEEKDAY` | Transform | Transform | Represent coarsely as weekend dummy | A low-dimensional weekend indicator is preferable to seven weekday dummies |
++-------------+-------------+-------------+-------------+-------------+
+| Variable    | PCA role    | Clustering  | Rep         | Why         |
+|             |             | role        | resentation |             |
++=============+=============+=============+=============+=============+
+| `FL_DATE`   | Transform   | Transform   | Do not use  | Raw dates   |
+|             |             |             | raw date;   | create      |
+|             |             |             | derive      | arbitrary   |
+|             |             |             | mo          | scale       |
+|             |             |             | nth/weekday | differences |
+|             |             |             | information |             |
+|             |             |             | instead     |             |
++-------------+-------------+-------------+-------------+-------------+
+| `           | Post hoc    | Post hoc    | No dummy    | One-hot     |
+| OP_CARRIER` | only        | only        | expansion   | encoding    |
+|             |             |             | in          | carriers    |
+|             |             |             | u           | would add   |
+|             |             |             | nsupervised | dimensions  |
+|             |             |             | step        | and         |
+|             |             |             |             | dominate    |
+|             |             |             |             | structure   |
++-------------+-------------+-------------+-------------+-------------+
+| `OP_CARR    | Exclude     | Exclude     | Iden        | Mostly      |
+| IER_FL_NUM` |             |             | tifier-like | identifies  |
+|             |             |             | flight      | a flight    |
+|             |             |             | number; not | record      |
+|             |             |             | a           | rather than |
+|             |             |             | nalytically | a latent    |
+|             |             |             | meaningful  | trait       |
++-------------+-------------+-------------+-------------+-------------+
+| `ORIGIN`    | Post hoc    | Post hoc    | Retain for  | Airport     |
+|             | only        | only        | post hoc    | dummies     |
+|             |             |             | inte        | would       |
+|             |             |             | rpretation, | mainly      |
+|             |             |             | not as      | recover     |
+|             |             |             | dummy set   | airport     |
+|             |             |             |             | labels      |
+|             |             |             |             | rather than |
+|             |             |             |             | shared      |
+|             |             |             |             | structure   |
++-------------+-------------+-------------+-------------+-------------+
+| `DEST`      | Post hoc    | Post hoc    | Retain for  | Airport     |
+|             | only        | only        | post hoc    | dummies     |
+|             |             |             | inte        | would       |
+|             |             |             | rpretation, | mainly      |
+|             |             |             | not as      | recover     |
+|             |             |             | dummy set   | airport     |
+|             |             |             |             | labels      |
+|             |             |             |             | rather than |
+|             |             |             |             | shared      |
+|             |             |             |             | structure   |
++-------------+-------------+-------------+-------------+-------------+
+| `DISTANCE`  | Keep        | Keep        | Use as      | Op          |
+|             |             |             | numeric     | erationally |
+|             |             |             | r           | meaningful  |
+|             |             |             | oute-length | and known   |
+|             |             |             | feature     | before      |
+|             |             |             |             | departure   |
++-------------+-------------+-------------+-------------+-------------+
+| `CR         | Transform   | Transform   | Convert to  | Raw HHMM    |
+| S_DEP_TIME` |             |             | cyclical    | values are  |
+|             |             |             | sin/cos     | not valid   |
+|             |             |             | features    | linear      |
+|             |             |             |             | distances   |
++-------------+-------------+-------------+-------------+-------------+
+| `CR         | Transform   | Transform   | Convert to  | Raw HHMM    |
+| S_ARR_TIME` |             |             | cyclical    | values are  |
+|             |             |             | sin/cos     | not valid   |
+|             |             |             | features    | linear      |
+|             |             |             |             | distances   |
++-------------+-------------+-------------+-------------+-------------+
+| `CRS_EL     | Keep        | Watch for   | Use as      | Op          |
+| APSED_TIME` |             | redundancy  | numeric     | erationally |
+|             |             |             | sche        | meaningful  |
+|             |             |             | dule-length | and known   |
+|             |             |             | feature     | before      |
+|             |             |             |             | departure   |
++-------------+-------------+-------------+-------------+-------------+
+| `DEP_TIME   | Exclude     | Exclude     | Known only  | Post-event  |
+| / ARR_TIME  |             |             | after       | information |
+| / WHEELS_*` |             |             | depart      | must be     |
+|             |             |             | ure/arrival | excluded    |
++-------------+-------------+-------------+-------------+-------------+
+| `           | Exclude     | Exclude     | Leakage /   | Would force |
+| DEP_DELAY / |             |             | targ        | PCA         |
+|  ARR_DELAY` |             |             | et-adjacent | /clustering |
+|             |             |             | outcome     | to recover  |
+|             |             |             | information | realised    |
+|             |             |             |             | delay       |
+|             |             |             |             | instead of  |
+|             |             |             |             | latent      |
+|             |             |             |             | structure   |
++-------------+-------------+-------------+-------------+-------------+
+| Delay-cause | Exclude     | Exclude     | Recorded    | Pure        |
+| columns     |             |             | after the   | leakage for |
+|             |             |             | event and   | pr          |
+|             |             |             | therefore   | e-departure |
+|             |             |             | leakage     | analysis    |
++-------------+-------------+-------------+-------------+-------------+
+| `CANCELLED  | Exclude     | Exclude     | Used only   | These       |
+| / DIVERTED` |             |             | as sample   | variables   |
+|             |             |             | filter, not | already     |
+|             |             |             | as features | define      |
+|             |             |             |             | which rows  |
+|             |             |             |             | remain in   |
+|             |             |             |             | the         |
+|             |             |             |             | analysis    |
++-------------+-------------+-------------+-------------+-------------+
+| `MONTH`     | Transform   | Transform   | Convert to  | Month 12 is |
+|             |             |             | cyclical    | adjacent to |
+|             |             |             | sin/cos     | month 1, so |
+|             |             |             | features    | linear      |
+|             |             |             |             | coding is   |
+|             |             |             |             | in          |
+|             |             |             |             | appropriate |
++-------------+-------------+-------------+-------------+-------------+
+| `WEEKDAY`   | Transform   | Transform   | Represent   | A           |
+|             |             |             | coarsely as | low-        |
+|             |             |             | weekend     | dimensional |
+|             |             |             | dummy       | weekend     |
+|             |             |             |             | indicator   |
+|             |             |             |             | is          |
+|             |             |             |             | preferable  |
+|             |             |             |             | to seven    |
+|             |             |             |             | weekday     |
+|             |             |             |             | dummies     |
++-------------+-------------+-------------+-------------+-------------+
 
 This screening leads to two main choices. First, we do not put raw
 carrier and airport labels into PCA or clustering, because they would
@@ -1076,14 +1332,42 @@ flights_structure$IS_WEEKEND <- ifelse(
 )
 ```
 
-| Feature | Preparation | Why |
-|----|----|----|
-| `DISTANCE` | Z-score scaling only | This is already a meaningful numeric variable, so we only need to standardize the scale |
-| `CRS_ELAPSED_TIME` | Z-score scaling only | This is also a meaningful numeric variable, but we keep an eye on overlap with distance |
-| `SCHED_DEP_HOUR` | Cyclical encoding (`sin`/`cos`) + scaling | Raw HHMM values would create false distances between times |
-| `SCHED_ARR_HOUR` | Cyclical encoding (`sin`/`cos`) + scaling | Raw HHMM values would create false distances between times |
-| `MONTH` | Cyclical encoding (`sin`/`cos`) + scaling | Month 12 and month 1 should be close together, so linear coding is not ideal |
-| `WEEKDAY` | Weekend dummy + scaling | A simple weekend indicator keeps the feature space small and clear |
++----------------------+----------------------+----------------------+
+| Feature              | Preparation          | Why                  |
++======================+======================+======================+
+| `DISTANCE`           | Z-score scaling only | This is already a    |
+|                      |                      | meaningful numeric   |
+|                      |                      | variable, so we only |
+|                      |                      | need to standardize  |
+|                      |                      | the scale            |
++----------------------+----------------------+----------------------+
+| `CRS_ELAPSED_TIME`   | Z-score scaling only | This is also a       |
+|                      |                      | meaningful numeric   |
+|                      |                      | variable, but we     |
+|                      |                      | keep an eye on       |
+|                      |                      | overlap with         |
+|                      |                      | distance             |
++----------------------+----------------------+----------------------+
+| `SCHED_DEP_HOUR`     | Cyclical encoding    | Raw HHMM values      |
+|                      | (`sin`/`cos`) +      | would create false   |
+|                      | scaling              | distances between    |
+|                      |                      | times                |
++----------------------+----------------------+----------------------+
+| `SCHED_ARR_HOUR`     | Cyclical encoding    | Raw HHMM values      |
+|                      | (`sin`/`cos`) +      | would create false   |
+|                      | scaling              | distances between    |
+|                      |                      | times                |
++----------------------+----------------------+----------------------+
+| `MONTH`              | Cyclical encoding    | Month 12 and month 1 |
+|                      | (`sin`/`cos`) +      | should be close      |
+|                      | scaling              | together, so linear  |
+|                      |                      | coding is not ideal  |
++----------------------+----------------------+----------------------+
+| `WEEKDAY`            | Weekend dummy +      | A simple weekend     |
+|                      | scaling              | indicator keeps the  |
+|                      |                      | feature space small  |
+|                      |                      | and clear            |
++----------------------+----------------------+----------------------+
 
 We use Z-score standardization here because PCA and distance-based
 clustering are sensitive to scale. This puts the variables on a more
@@ -1126,6 +1410,8 @@ summary(structure_z)
 ## 6.2 Correlation heatmap
 
 ```{r correlation_heatmap}
+# The heatmap gives us a quick visual check of overlap inside the
+# unsupervised feature space before PCA and clustering.
 cor_mat <- round(cor(structure_z), 2)
 cor_mat
 
@@ -1139,6 +1425,8 @@ reshape2::melt(cor_mat) |>
 ```
 
 ```{r correlation_pairs}
+# We also list only the stronger overlaps explicitly, so we can refer to
+# them more easily in the interpretation.
 high_corr_idx <- which(abs(cor_mat) >= 0.75 & lower.tri(cor_mat), arr.ind = TRUE)
 
 if (nrow(high_corr_idx) == 0) {
@@ -1173,6 +1461,8 @@ attention", not as a hard statistical law.
 ## 6.3 Principal component analysis
 
 ```{r pca_run}
+# PCA is run on the standardized feature space so each variable starts
+# on a comparable scale.
 pca_results <- prcomp(structure_z, center = FALSE, scale. = FALSE)
 
 pca_var_explained <- (pca_results$sdev)^2 / sum((pca_results$sdev)^2)
@@ -1187,6 +1477,8 @@ pca_var_table
 ```
 
 ```{r pca_variance_plots}
+# These two plots answer the basic PCA question: how much structure is
+# captured by the first few components?
 ggplot(pca_var_table, aes(x = PC, y = Variance_Explained)) +
   geom_col(fill = "steelblue", width = 0.7) +
   geom_text(aes(label = paste0(round(100 * Variance_Explained, 1), "%")),
@@ -1206,6 +1498,8 @@ ggplot(pca_var_table, aes(x = PC_num, y = Cumulative)) +
 ```
 
 ```{r pca_loadings}
+# We inspect the largest loadings so we can explain what each main
+# component is mainly capturing.
 top_loadings <- function(pca_obj, pc = 1, n = 5) {
   out <- data.frame(
     variable = names(pca_obj$rotation[, pc]),
@@ -1259,6 +1553,8 @@ follows naturally: if the variance is not captured compactly enough, we
 keep the original variables as the main representation.
 
 ```{r pca_followup_decisions, include=FALSE}
+# These summary values are used in the markdown interpretation directly
+# below, so the conclusions update automatically after a rerun.
 cum4 <- pca_var_table$Cumulative[min(4, nrow(pca_var_table))]
 distance_elapsed_cor <- cor(structure_z$DISTANCE, structure_z$CRS_ELAPSED_TIME)
 ```
@@ -1289,6 +1585,8 @@ timing and simple calendar structure. These clusters are not delay
 classes. They are better seen as flight profiles.
 
 ```{r clustering_input}
+# We define the final clustering feature set here, with one small rule:
+# include elapsed time only if it does not overlap too strongly with distance.
 cluster_vars <- c(
   "DISTANCE",
   "DEP_HOUR_SIN", "DEP_HOUR_COS",
@@ -1313,6 +1611,8 @@ cluster_data_original <- flights_structure[idx_structure[idx_cluster], c(
 ```
 
 ```{r elbow_plot}
+# The elbow plot is used as a simple guide for choosing a workable
+# number of clusters.
 wss <- sapply(2:6, function(k) {
   kmeans(cluster_data_z, centers = k, nstart = 20)$tot.withinss
 })
@@ -1335,6 +1635,8 @@ starts flattening out, it makes more sense to pick a moderate number of
 clusters than to force many small groups.
 
 ```{r kmeans_clustering}
+# We fit one interpretable k-means solution and then carry the cluster
+# labels back to the original variables for interpretation.
 set.seed(46748717)
 K_CHOSEN <- 4
 kmeans_result <- kmeans(cluster_data_z, centers = K_CHOSEN, nstart = 25)
@@ -1368,6 +1670,8 @@ report. We do not claim that four is the single true number of flight
 types in the data.
 
 ```{r cluster_profiles}
+# We first summarize cluster sizes and cluster means, then use simple
+# boxplots to make the profiles easier to read.
 
 cluster_sizes <- data.frame(
   cluster = factor(names(table(cluster_profile_df$cluster))),
@@ -1416,6 +1720,8 @@ hard external label. The goal is simply to make the clusters easier to
 talk about in the report.
 
 ```{r cluster_archetypes, include=FALSE}
+# This helper step turns the numeric cluster summaries into short verbal
+# archetypes that are easier to describe in the report.
 describe_dep_period <- function(x) {
   if (x < 10) {
     "morning"
@@ -1503,6 +1809,8 @@ distance, departure timing, weekday versus weekend mix, and relative
 delay risk.
 
 ```{r cluster_density_plots}
+# Density plots help us see whether the clusters differ only in averages
+# or also in the full shape of their distributions.
 cluster_density_df <- cluster_profile_df
 
 density_vars <- c("DISTANCE", "CRS_ELAPSED_TIME", "SCHED_DEP_HOUR", "SCHED_ARR_HOUR")
@@ -1529,6 +1837,8 @@ insight for that variable. If the curves separate clearly, the clusters
 are easier to explain and defend.
 
 ```{r hierarchical_clustering}
+# We keep hierarchical clustering on a small sample only, because on the
+# full dataset it would be much too heavy and hard to read.
 set.seed(46748717)
 N_HCLUST <- min(150, nrow(cluster_data_z))
 idx_hclust <- sample(seq_len(nrow(cluster_data_z)), N_HCLUST)
@@ -1578,6 +1888,8 @@ the model behaves on unseen flights.
 ## 7.2 Preparing the modelling data
 
 ```{r prepare_modelling_data}
+# Here we create the modelling table, keep only the selected predictors,
+# and then make one train-test split for evaluation.
 flights_model <- flights_clean
 
 flights_model$IS_DELAYED_15 <- ifelse(flights_model$ARR_DELAY >= 15, "Delayed", "On_time")
@@ -1646,6 +1958,8 @@ train-test split as a standard evaluation setup. Neither choice is the
 only possible one, but both are common and easy to explain.
 
 ```{r training_testing_comparison}
+# These plots are just a quick sanity check that training and testing
+# still look broadly similar after the split.
 split_compare <- rbind(
   data.frame(split = "Training", training[, c("IS_DELAYED_15", "DISTANCE", "DEP_HOUR")]),
   data.frame(split = "Testing", testing[, c("IS_DELAYED_15", "DISTANCE", "DEP_HOUR")])
@@ -1716,7 +2030,8 @@ hard_vote <- function(pred_df) {
 ## 7.3 Model 1: C5.0 decision tree
 
 ```{r c50_tree_model}
-
+# We start with a plain C5.0 tree because it is simple and gives a clear
+# baseline before trying more flexible models.
 model_tree <- C50::C5.0(IS_DELAYED_15 ~ ., data = training)
 
 summary(model_tree)
@@ -1726,6 +2041,8 @@ The decision tree is our first baseline because it is easy to explain.
 We can see which variables are used first and how the data gets split.
 
 ```{r tree_conditions_plot}
+# This shallow rpart tree is only meant to make the first split
+# conditions readable if the data supports any splits at all.
 tree_plot_model <- rpart::rpart(
   IS_DELAYED_15 ~ .,
   data = training,
@@ -1764,7 +2081,8 @@ pay more attention to delayed flights.
 ## 7.4 Inspecting tree behaviour on unseen data
 
 ```{r c50_tree_test_evaluation}
-
+# We evaluate the baseline tree on unseen data with both a confusion
+# matrix and a small metric summary.
 pred_test <- predict(model_tree, testing)
 
 gmodels::CrossTable(
@@ -1812,6 +2130,8 @@ balance.
 ## 7.5 Altering tree behaviour: boosting
 
 ```{r boosted_c50_evaluation}
+# Boosting lets the tree model correct earlier mistakes, so this is our
+# first check of whether a slightly richer tree setup helps.
 model_tree_boost <- C50::C5.0(IS_DELAYED_15 ~ ., data = training, trials = 10)
 
 pred_boost <- predict(model_tree_boost, testing)
@@ -1849,6 +2169,8 @@ to see whether repeated trees help, but still simple and workbook-like.
 ## 7.6 Altering tree behaviour: cost-sensitive classification
 
 ```{r cost_sensitive_c50_evaluation}
+# The cost matrix makes missed delayed flights more expensive, which
+# matches the business preference for higher recall.
 cost_matrix <- matrix(c(NA, 1,
                         2, NA),
                       nrow = 2,
@@ -1892,6 +2214,8 @@ even if precision or accuracy drops a bit.
 ## 7.7 Model 2: Random Forest
 
 ```{r random_forest_evaluation}
+# The random forest serves as a second benchmark, but on a reduced
+# feature set because of the category limit in this implementation.
 rf_vars <- c(
   "IS_DELAYED_15",
   "DISTANCE",
@@ -1939,6 +2263,8 @@ for this notebook.
 ## 7.8 Comparison
 
 ```{r model_comparison_table}
+# This table puts the main classification metrics for all models next to
+# each other so the trade-offs are easier to compare.
 comparison_table <- data.frame(
   model = c("C5.0 tree", "Boosted C5.0", "Cost-sensitive C5.0", "Random forest"),
   accuracy = c(
@@ -2217,6 +2543,8 @@ It is just to check whether a very simple combination changes the
 stability or the error balance in a useful way.
 
 ```{r conclusion_helpers, include=FALSE}
+# These helper values let the written conclusion refer automatically to
+# the current best-performing models in the notebook output.
 best_recall_idx <- which.max(comparison_with_ensemble$recall_delayed)[1]
 best_auc_idx <- which.max(auc_table$auc)[1]
 
