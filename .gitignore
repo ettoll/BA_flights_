@@ -3,6 +3,10 @@
 .RData
 .Ruserdata
 
+echo ".RDataTmp*" >> .gitignore
+echo ".RData" >> .gitignore
+echo ".Rhistory" >> .gitignore
+
 .DS_Store
 data/*
 !data/.gitkeep
