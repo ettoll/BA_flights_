@@ -199,7 +199,7 @@ From this we can see the variable types and the first values. By
 analysing we can write down the variable descriptions.
 
 | Variable | Description | Variable type |
-|------------------------|------------------------|------------------------|
+|-----------------------|-----------------------|-----------------------|
 | FL_DATE | Scheduled date of the flight | character (date string `YYYY-MM-DD` format) |
 | OP_CARRIER | Airline operating the flight | character |
 | OP\_ CARRIER_FL_NUM | Identifier number of the flight operated by the carrier | integer |
@@ -586,7 +586,7 @@ flights_clean$SCHED_ARR_HOUR <- as.numeric(format(flights_clean$CRS_ARR_TIME, "%
   as.numeric(format(flights_clean$CRS_ARR_TIME, "%M")) / 60
 ```
 
-## 4.4 Extreme values 
+## 4.4 Extreme values
 
 Before finishing up the cleaning, we do a few final sanity checks by
 printing a detailed summary about the variables.
@@ -684,7 +684,7 @@ explicit preparation choices. We here summarize the main findings in a
 short table.
 
 | Case | Observation | Action |
-|------------------------|------------------------|------------------------|
+|-----------------------|-----------------------|-----------------------|
 | Unnamed columns | Unnamed column contains only missing values | Drop |
 | Cancelled or diverted flights | Operational outcome fields are often missing for these flights | Exclude from flight modelling sample |
 | Departure and arrival times | Stored as HHMM numerics rather than usable times | Convert to POSIXct and derive scheduled hour features |
@@ -1185,129 +1185,206 @@ build a sensible feature set with variables that are known before
 departure. If we put in raw times, airport labels, or post-event
 variables, the output becomes much less useful.
 
-## 6.1 PCA
+## 6.1 Preparing data for PCA and clustering
 
-We use PCA here to get a quick view of the structure in the data. The
-first step is not choosing components yet, but deciding which variables
-should even go into PCA and clustering.
+We use PCA here as an exploratory tool to understand the structure of
+the pre-departure data. PCA helps us assess whether some variables move
+together. But also whether the feature space contains redundancy and
+whether part of the variation can be summarized in a smaller number of
+dimensions.
 
-| Variable | PCA role | Clustering role | Representation | Why |
-|---------------|---------------|---------------|---------------|---------------|
-| `FL_DATE` | Transform | Transform | Do not use raw date; derive month/weekday information instead | Raw dates create arbitrary scale differences |
-| `OP_CARRIER` | Post hoc only | Post hoc only | No dummy expansion in u nsupervised step | One-hot encoding carriers would add dimensions and dominate structure |
-| `OP_CARRIER_FL_NUM` | Exclude | Exclude | Idenitifier-like flight number; not analytically meaningful | Mostly identifies a flight record rather than a latent trait |
-| `ORIGIN` | Post hoc only | Post hoc only | Retain for post hoc interpretation, not as dummy set | Airport dummies would mainly recover airport labels rather than shared structure |
-| `DEST` | Post hoc only | Post hoc only | Retain for post hoc inte rpretation, not as dummy set | Airport dummies would mainly recover airport labels rather than shared structure |
-| `DISTANCE` | Keep | Keep | Use as numeric r oute-length feature | Op erationally meaningful and known before departure |
-| `CRS_DEP_TIME` | Transform | Transform | Convert to cyclical sin/cos features | Raw HHMM values are not valid linear distances |
-| `CRS_ARR_TIME` | Transform | Transform | Convert to cyclical sin/cos features | Raw HHMM values are not valid linear distances |
-| `CRS_ELAPSED_TIME` | Keep | Watch for redundancy | Use as numeric sche dule-length feature | Op erationally meaningful and known before departure |
-| `DEP_TIME / ARR_TIME / WHEELS_*` | Exclude | Exclude | Known only after depart ure/arrival | Post-event information must be excluded |
-| `DEP_DELAY /  ARR_DELAY` | Exclude | Exclude | Leakage / targ et-adjacent outcome information | Would force PCA /clustering to recover realised delay instead of latent structure |
-| Delay-cause columns | Exclude | Exclude | Recorded after the event and therefore leakage | Pure leakage for pr e-departure analysis |
-| `CANCELLED / DIVERTED` | Exclude | Exclude | Used only as sample filter, not as features | These variables already define which rows remain in the analysis |
-| `MONTH` | Transform | Transform | Convert to cyclical sin/cos features | Month 12 is adjacent to month 1, so linear coding is in appropriate |
-| `WEEKDAY` | Transform | Transform | Represent coarsely as weekend dummy | A low- dimensional weekend indicator is preferable to seven weekday dummies |
+Before deciding how many components to keep, we first need to determine
+which variables should be allowed to shape the PCA and clustering space.
+This is an important modelling choice, because PCA is only as useful as
+the feature representation it starts from. If we include raw time
+stamps, airport labels or post-event variables, the resulting structure
+would not contain meaningful pre-departure differences.
 
-This screening leads to two main choices. First, we do not put raw
-carrier and airport labels into PCA or clustering, because they would
-mostly make the analysis split on labels. Second, time variables need to
-be transformed first, because time is cyclical and not linear.
+| Variable | Decision | Treatment | Reason |
+|---------------|---------------|---------------|--------------------------|
+| `DISTANCE` | Keep | Standardize | Numeric pre-departure variable; potentially informative for route structure |
+| `CRS_E LAPSED_TIME` | Keep | Standardize | Planned flight duration, pre-departure and useful as a compact route characteristic |
+| `SCH ED_DEP_HOUR` | T ransform | Standardize | Seems better interpretable than raw scheduled departure time from exploratory analysis |
+| `MONTH` | T ransform | Convert to cyclical sine and cosine features and standardize | Month 12 is adjacent to month 1, so simple linear coding would be inappropriate |
+| `WEEKDAY` | T ransform | Represent as a weekend dummy | Low-dimensional representation for exploratory PCA/clustering |
+| `FL_DATE` | Exclude | \- | A full calendar date is too specific for PCA or clustering |
+| `OP_CARRIER` | Exclude | \- | Highly diverse label; useful for supervised models, but less suitable for a compact and interpretable PCA and/or clustering feature set |
+| `OP_CAR RIER_FL_NUM` | Exclude | \- | Flight number is an identifier rather than a meaningful numeric feature |
+| `ORIGIN` `DEST` | Exclude | \- | Airport code is a categorical label and thus not suitable for PCA and/or clustering |
+| `C RS_DEP_TIME` `C RS_ARR_TIME` | Exclude | Replace by `SCHE D_DEP_HOUR` and `SCHE D_ARR_HOUR` | Raw timestamp is not ideal for PCA. If arrival timing is used, a simplified hour feature is preferable |
+| `SCH ED_ARR_HOUR` | Exclude | \- | Redundant with scheduled departure hour and planned elapsed time, excluding keeps the feature set more compact |
+| `DEP_DELAY` `ARR_DELAY` `ARR_TIME` `DEP_TIME` | Exclude | \- | Not known before departure and including it would introduce data leakage |
+| `IS_DELAYED` | Exclude | \- | Is the target variable |
+| `TAXI_OUT` `WHEELS_OFF` `WHEELS_ON` `TAXI_IN` | Exclude | \- | Observed after departure |
+| ``` ACTUAL _ELAPSED_TIM E``AIR_TIME ``` | Exclude | \- | Not valid in a pre-departure setting |
+| `SEC URITY_DELAY` `LATE_AI RCRAFT_DELAY NAS_DELAY WE ATHER_DELAY` `CA RRIER_DELAY` | Exclude | \- | Post-event delay attribution, not known before departure |
+| `CANCELLED` ``` DIVE RTED``CANCEL LATION_CODE ``` | Exclude | \- | Not in completed flight sample and therefore not used as a feature |
 
-In this step we prepare the variables for PCA and clustering. We convert
-time variables into a cyclical form so that times such as 23:00 and
-00:00 stay close together. This matters because raw clock times do not
-work well here as simple numeric values. We also convert `WEEKDAY` into
-a simple weekend indicator so the feature space stays manageable.
+For PCA and clustering we need to only keep variables that are available
+before departure and that can be represented in a compact numeric form.
+This leads to a small feature set consisting of planned numeric
+characteristics such as distance, scheduled elapsed time, scheduled
+departure hour and simple calendar features. Variables that are
+identifiers, raw labels, target variables or post-departure are
+excluded. This keeps the exploratory structure easier to interpret and
+aligned with the pre-departure prediction setting.
 
-The table below then summarizes what we did for each variable and why.
+In this step, we prepare the variables for PCA and clustering. Cyclical
+variables such as scheduled time and month are converted to sine/cosine
+representations so that values at the boundaries remain close together.
+Raw clock times do not work well as simple numeric inputs. The numeric
+inputs in HHMM format are also not a good representation of time that is
+why it is converted. We also simplify `WEEKDAY` to a weekend indicator
+in order to keep the feature space compact.
 
 ```{r pca_cluster_preparation, echo=FALSE}
 flights_structure <- flights_clean
 
-# Time variables are cyclical, so we convert them to sine/cosine pairs
-# before PCA and clustering. This keeps 23:00 and 00:00 close together.
+# cyclical encoding for time and month
 flights_structure$DEP_HOUR_SIN <- sin(2 * pi * flights_structure$SCHED_DEP_HOUR / 24)
 flights_structure$DEP_HOUR_COS <- cos(2 * pi * flights_structure$SCHED_DEP_HOUR / 24)
-flights_structure$ARR_HOUR_SIN <- sin(2 * pi * flights_structure$SCHED_ARR_HOUR / 24)
-flights_structure$ARR_HOUR_COS <- cos(2 * pi * flights_structure$SCHED_ARR_HOUR / 24)
-flights_structure$MONTH_SIN <- sin(2 * pi * flights_structure$MONTH / 12)
-flights_structure$MONTH_COS <- cos(2 * pi * flights_structure$MONTH / 12)
+flights_structure$MONTH_SIN    <- sin(2 * pi * flights_structure$MONTH / 12)
+flights_structure$MONTH_COS    <- cos(2 * pi * flights_structure$MONTH / 12)
 
-# Weekday is simplified to weekend versus non-weekend to keep the
-# unsupervised feature space small and interpretable.
+# weekend indicator 
 flights_structure$IS_WEEKEND <- ifelse(
   flights_structure$WEEKDAY %in% c("Saturday", "Sunday"), 1, 0
 )
 ```
 
-| Feature | Preparation | Why |
-|------------------------|------------------------|------------------------|
-| `DISTANCE` | Z-score scaling only | This is already a meaningful numeric variable, so we only need to standardize the scale |
-| `CRS_ELAPSED_TIME` | Z-score scaling only | This is also a meaningful numeric variable, but we keep an eye on overlap with distance |
-| `SCHED_DEP_HOUR` | Cyclical encoding (`sin`/`cos`) + scaling | Raw HHMM values would create false distances between times |
-| `SCHED_ARR_HOUR` | Cyclical encoding (`sin`/`cos`) + scaling | Raw HHMM values would create false distances between times |
-| `MONTH` | Cyclical encoding (`sin`/`cos`) + scaling | Month 12 and month 1 should be close together, so linear coding is not ideal |
-| `WEEKDAY` | Weekend dummy + scaling | A simple weekend indicator keeps the feature space small and clear |
+The table below then summarizes what we did for each variable and why.
 
-We use Z-score standardization here because PCA and distance-based
-clustering are sensitive to scale. This puts the variables on a more
-equal footing. We do not add an extra log transformation for `DISTANCE`
-or `CRS_ELAPSED_TIME`, because we want to keep those variables easy to
-interpret. This is also an explicit assumption: we assume that keeping
-the variables easy to interpret is more useful here than adding another
-transformation layer just to chase a slightly neater distribution.
+| Feature | Preparation | Why |
+|----------------|----------------|---------------------------------------|
+| `DISTANCE` | Standardize | Already meaningful as a numeric feature and scaling makes it comparable to the other variables |
+| `CRS_EL APSED_TIME` | Standardize | Planned numeric feature and scaling is sufficient, though some overlap with distance is expected |
+| `SCHE D_DEP_HOUR` | Encode cyclically, then standardize | Time of day is circular, so sine/cosine encoding avoids jumps at midnight |
+| `MONTH` | Encode cyclically, then standardize | The calendar is circular, so December and January should remain close in feature space |
+| `WEEKDAY` | Convert to weekend dummy | Keeps dimensions low and easy to interpret |
+
+Now we define the feature space used for PCA and clustering as described
+in the table above. Variables such as delay status, carrier, origin, and
+destination are retained only for post-hoc interpretation of the
+resulting components or clusters. We standardize the feature space so
+that no variable dominates purely because of its scale.
 
 ```{r pca_cluster_feature_space}
-# Here we define the variables that are allowed to shape the PCA and
-# clustering space, plus a few label variables kept only for later interpretation.
-representation_vars <- c(
+# define the variables used
+features_retain <- c(
   "DISTANCE",
   "CRS_ELAPSED_TIME",
   "DEP_HOUR_SIN", "DEP_HOUR_COS",
-  "ARR_HOUR_SIN", "ARR_HOUR_COS",
   "MONTH_SIN", "MONTH_COS",
   "IS_WEEKEND"
 )
 
-post_hoc_vars <- c("IS_DELAYED", "OP_CARRIER", "ORIGIN", "DEST")
+# define variables retained only for post hoc interpretation
+features_post_hoc <- c("IS_DELAYED", "OP_CARRIER", "ORIGIN", "DEST")
 
-structure_df <- flights_structure[, c(representation_vars, post_hoc_vars)]
-structure_df <- na.omit(structure_df)
+# construct the analysis frame
+flights_structure_analysis <- flights_structure[, c(features_retain, features_post_hoc)]
 
-# We sample a manageable subset and standardize the feature space so no
-# variable dominates only because of its scale.
-set.seed(46748717)
-N_STRUCTURE <- min(50000, nrow(structure_df))
-idx_structure <- sample(seq_len(nrow(structure_df)), N_STRUCTURE)
+# remove incomplete observations
+flights_structure_analysis <- na.omit(flights_structure_analysis)
 
-structure_sample <- structure_df[idx_structure, ]
-structure_z <- as.data.frame(scale(structure_sample[, representation_vars]))
+# standardize the representation variables
+flights_structure_analysis_z <- as.data.frame(
+  scale(flights_structure_analysis[, features_retain])
+)
 
-dim(structure_sample)
-summary(structure_z)
+# inspect result
+dim(flights_structure_analysis)
+apply(flights_structure_analysis_z, 2, sd)
 ```
+
+We use Z-score standardization because both PCA and distance-based
+clustering are sensitive to scale. Without scaling, variables with
+larger numeric ranges would dominate the analysis even if they do not
+contain more information. Standardization places the variables on a more
+comparable footing.
+
+The feature representation is kept simple. We do not add extra
+transformations such as log transformations for `DISTANCE` or
+`CRS_ELAPSED_TIME`, because for this exploratory step it is more
+important that the variables remain understandable than that every
+distribution is made statistically neater.
+
+Thus, first we defined a coherent feature representation and transform
+non-linear or categorical information into a compact numeric form. Then
+we separated variables used only for post-hoc interpretation and
+standardize the resulting feature space before PCA and clustering. We
+kept calendar related structures through cyclical month encoding and a
+weekend indicator, because these patterns appear relevant in the flight
+delay risk analysis after our exploration.
+
+Before running the PCA itself, we first inspect the correlation
+structure among the retained variables. This is useful because PCA is
+especially informative when some variables overlap or move together. A
+correlation heat map therefore gives a first indication of whether
+dimensionality reduction is likely to add value.
 
 ## 6.2 Correlation heatmap
 
-```{r correlation_heatmap}
-# The heatmap gives us a quick visual check of overlap inside the
-# unsupervised feature space before PCA and clustering.
-cor_mat <- round(cor(structure_z), 2)
-cor_mat
+We inspect the correlation structure of the kept variables. This is a
+useful step, because PCA is most informative when at least part of the
+feature space contains overlap. The heat map therefore helps us assess
+whether some variables capture similar information and whether the
+dimensionality reduction is meaningful.
 
-reshape2::melt(cor_mat) |>
-  ggplot(aes(x = Var1, y = Var2, fill = value)) +
+This step is also relevant for clustering. If strongly correlated
+variables are kept together, they can effectively count the same signal
+more than once in the distance calculation influencing the accurateness.
+Clustering may place too much weight on one part of the structure simply
+because it is represented multiple times. The heat map is a diagnostic
+tool for evaluating whether the features are reasonably balanced for the
+next steps.
+
+```{r correlation_heatmap}
+# heatmap
+cor_mat <- round(cor(flights_structure_analysis_z), 2)
+cor_mat
+```
+
+```{r correlation_heatmap_plot}
+cor_long <- reshape2::melt(cor_mat)
+
+label_map <- c(
+  DISTANCE = "Distance",
+  CRS_ELAPSED_TIME = "Sched elapsed",
+  DEP_HOUR_SIN = "Dep sin",
+  DEP_HOUR_COS = "Dep cos",
+  MONTH_SIN = "Month sin",
+  MONTH_COS = "Month cos",
+  IS_WEEKEND = "Weekend"
+)
+
+cor_long$Var1 <- factor(cor_long$Var1, levels = names(label_map), labels = label_map)
+cor_long$Var2 <- factor(cor_long$Var2, levels = names(label_map), labels = label_map)
+
+ggplot(cor_long, aes(x = Var1, y = Var2, fill = value)) +
   geom_tile() +
-  scale_fill_gradient2(low = "firebrick", mid = "white", high = "steelblue", midpoint = 0) +
-  labs(title = "Correlation heatmap of PCA/clustering feature space",
-       x = "", y = "", fill = "Correlation") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  scale_fill_gradient2(
+    low = "red",
+    mid = "white",
+    high = "blue",
+    midpoint = 0,
+    limits = c(-1, 1)
+  ) +
+  labs(
+    title = "Correlation heatmap of retained features",
+    x = "",
+    y = "",
+    fill = "Correlation"
+  ) +
+  coord_fixed() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(size = 14)
+  )
 ```
 
 ```{r correlation_pairs}
-# We also list only the stronger overlaps explicitly, so we can refer to
-# them more easily in the interpretation.
+# show overlaps explicitly
 high_corr_idx <- which(abs(cor_mat) >= 0.75 & lower.tri(cor_mat), arr.ind = TRUE)
 
 if (nrow(high_corr_idx) == 0) {
@@ -1328,18 +1405,47 @@ if (nrow(high_corr_idx) == 0) {
 high_corr_pairs
 ```
 
-This heatmap is a quick check before PCA and clustering. If variables
-are strongly correlated, they can capture the same signal twice. That is
-especially relevant for clustering, where this can distort the
-distances. The next step follows directly from this: once we know which
-variables overlap strongly, we can judge more clearly whether PCA is
-useful and whether clustering may be double-counting some structure.
+The clearest pattern in the heat map is the very high correlation
+between `DISTANCE` and `CRS_ELAPSED_TIME` (`0.98`). This is not
+surprising since longer routes usually also have longer scheduled flight
+times. For our analysis, this means that these two variables are close
+to carrying the same information. This does not necessarily mean that
+one of them must be removed, but it does mean that they should be
+interpreted as a strongly overlapping pair. This is exactly the type of
+redundancy that PCA can summarize into a shared component.
 
-The cutoff of `|correlation| >= 0.75` in the table below is an explicit
-assumption. We use it as a practical signal for "strong enough to pay
-attention", not as a hard statistical law.
+Apart from this pair, the remaining correlations are small. In
+particular, the cyclical month variables and the weekend indicator show
+little correlation with most of the other retained features. In other
+words, the feature space contains some clear redundancy, but it still
+also contains dimensions that add distinct information.
+
+The table of pairs with correlation above `0.75` makes this easier to
+summarize. Under this cutoff, the main source of overlap in the retained
+feature space is the pair `DISTANCE` and `CRS_ELAPSED_TIME`.
+
+The heat map supports PCA as a logical and sensible next step. The
+retained variables are not independent and some of them move together.
+Dimensionality reduction can help summarize shared structure. At the
+same time, the heat map also shows that the feature space is not
+dominated entirely by redundancy.
+
+This is both a warning and a justification for clustering. The warning
+is that overlapping variables may influences distances heavily if this
+standardized feature space is used. The justification is that PCA may
+help stabilize the structure first by reducing some of this double
+counting. We therefore use the heat map as a diagnostic step before
+moving on to the PCA itself.
 
 ## 6.3 Principal component analysis
+
+After checking the correlation structure, we now will run the PCA on the
+standardized feature space. The goal is again not to replace the
+original variables immediately, but to see whether a smaller number of
+components have a meaningful share of the structure and what those
+components represent. This helps us to look at how compressible the
+features are and whether the PCA approach adds something useful before
+clustering.
 
 ```{r pca_run}
 # PCA is run on the standardized feature space so each variable starts
