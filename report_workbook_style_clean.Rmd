@@ -1954,41 +1954,88 @@ modelling, the original engineered variables remain the stronger basis.
 
 # 7. Modelling
 
-In this section we start to model our data. The goal is to compare
-models that are clearly useful for our delay problem. The focus will be
-mainly on the delayed class, this is because missing flagging a flight
-that has a real delay is worse than giving a flagging a flight and it
-eventually not having a delay. It must be noted that if this is the case
-it could seem that it is better to always install extra crew and be more
-prepared, however this is a trade-off for costs it is important to weigh
-these and find an optimum. This is hard to do without the data for these
-costs that is why it is chosen to punish take missing high risk a bit
-more but not unrealistically much.
+In this section, we move from exploration to prediction. Whereas Chapter
+6 focused on understanding the structure of the data through
+unsupervised methods, the goal here is different: we now examine whether
+flight delay risk can be predicted before departure in a way that is
+useful for decision making. In particular, we compare classification
+models that use only information available pre-departure. This keeps the
+analysis operationally relevant and avoids information leakage from
+variables that are only observed after the flight has started.
+
+The target in this chapter is the delay classification problem defined
+earlier: a flight is delayed by at least 15 minutes. The main interest
+is the delayed class. In practice, failing to identify a flight that
+will be delayed is often more costly than incorrectly flagging a flight
+that ultimately departs on time. Missed delay risks reduce the
+opportunity to prepare gates, crew or other operational buffers. At the
+same time, false delay risk alerts are not costless either. This is due
+to unnecessary preparation that also creates operational costs. The data
+does not contain the exact cost trade-off between these two types of
+errors. That's why we do not impose an artificial cost model. Instead,
+we use an evaluation framework that places somewhat more emphasis on
+identifying delayed flights, while still penalizing false positives.
+
+The PCA and clustering results from Chapter 6 remain useful in this
+chapter because they helped us understand the structure of the feature
+space and guided the selection of important predictors. We move to a
+supervised setting in which models are trained on observed outcomes and
+evaluated on unseen flights, so that we can assess predictive value
+rather than structure alone.
 
 ## 7.1 Classification setup
 
 We prepare a modelling data set by splitting our data set into training
 and testing data. The training data is as always used to estimate the
 classification rules, while the testing data is held back to inspect how
-the model behaves on unseen flights.
+the model behaves on unseen flights. We do this because a model that
+performs well on the same data it was trained on is not automatically
+useful in practice. The real question is whether it still performs in a
+proper way when applied to new flights. We use only variables that are
+known before departure and that are easy to explain. This is important
+both for fairness in the comparison and for business relevance. An
+accurate model would not be useful if it relied on information that is
+only observed after the flight has already started.
 
 ## 7.2 Preparing the modelling data
 
+We now prepare the data set for the classification models. We continue
+to work in a pre-departure setting, so only variables that are known
+before departure are allowed to enter the modelling table. This is still
+essential, because the goal is to support earlier operational decisions
+on staffing, gates, and attention allocation. The predictor choice is in
+line with Chapters 5 and 6. In the exploratory analysis, route length
+and schedule timing emerged as two of the clearest dimensions in the
+data. We therefore retain distance, scheduled elapsed time and scheduled
+departure and arrival hour. We also keep month and weekday to represent
+calendar structure. On top of that, we now include carrier, origin, and
+destination. These variables were excluded from PCA and clustering
+because those methods required a compact numeric feature space, but they
+are useful in supervised classification because operational differences
+across airlines and airports may help explain delay risk.\
+\
+There is one more difference with Chapter 6. In the PCA and clustering
+section, cyclical encodings were useful because those methods depend
+strongly on geometric representation. Here the first models are
+tree-based, so we keep scheduled departure and arrival time in their
+directly interpretable hour form. This makes the resulting splits easier
+to read while still preserving the pre-departure timing information. In
+the same spirit, we do not standardize the predictors here. As noted
+earlier in the report, tree-based models do not require all variables to
+be on the same scale.
+
 ```{r prepare_modelling_data}
-# Here we create the modelling table, keep only the selected predictors,
-# and then make one train-test split for evaluation.
+# construct modelling table and create one train-test split
 flights_model <- flights_clean
 
-flights_model$IS_DELAYED_15 <- ifelse(flights_model$ARR_DELAY >= 15, "Delayed", "On_time")
-flights_model$IS_DELAYED_15 <- factor(flights_model$IS_DELAYED_15)
+# target variable in class-label form
+flights_model$IS_DELAYED_15 <- factor(
+  ifelse(flights_model$IS_DELAYED, "Delayed", "On_time"),
+  levels = c("On_time", "Delayed")
+)
 
-flights_model$DEP_HOUR <- as.numeric(format(flights_model$CRS_DEP_TIME, "%H")) +
-                          as.numeric(format(flights_model$CRS_DEP_TIME, "%M")) / 60
-
-flights_model$ARR_HOUR <- as.numeric(format(flights_model$CRS_ARR_TIME, "%H")) +
-                          as.numeric(format(flights_model$CRS_ARR_TIME, "%M")) / 60
-
-factor_vars <- c("OP_CARRIER", "ORIGIN", "DEST", "WEEKDAY")
+# convert categorical predictors to factors
+factor_vars <- c("MONTH", "WEEKDAY", "OP_CARRIER", "ORIGIN", "DEST")
 
 for (v in factor_vars) {
   if (v %in% names(flights_model)) {
@@ -1996,12 +2043,13 @@ for (v in factor_vars) {
   }
 }
 
+# variables used in modelling
 model_vars <- c(
   "IS_DELAYED_15",
   "DISTANCE",
   "CRS_ELAPSED_TIME",
-  "DEP_HOUR",
-  "ARR_HOUR",
+  "SCHED_DEP_HOUR",
+  "SCHED_ARR_HOUR",
   "MONTH",
   "WEEKDAY",
   "OP_CARRIER",
@@ -2012,74 +2060,162 @@ model_vars <- c(
 model_df <- flights_model[, model_vars]
 model_df <- na.omit(model_df)
 
+# overview of the modelling data
 str(model_df)
-summary(model_df$IS_DELAYED_15)
 
+# class balance in full modelling table
+class_counts_full <- table(model_df$IS_DELAYED_15)
+class_props_full  <- prop.table(class_counts_full)
+
+class_counts_full
+round(100 * class_props_full, 2)
+
+# sample for computational manageability
 set.seed(46748717)
 
-N_MODEL <- min(300000, nrow(model_df))   # adjust if needed
+N_MODEL <- min(300000, nrow(model_df))
 idx <- sample(seq_len(nrow(model_df)), N_MODEL)
 
 model_df_small <- model_df[idx, ]
 dim(model_df_small)
 
+# class balance in sampled modelling data
+class_counts_sample <- table(model_df_small$IS_DELAYED_15)
+class_props_sample  <- prop.table(class_counts_sample)
+
+class_counts_sample
+round(100 * class_props_sample, 2)
+
+# train-test split while preserving class proportions
 set.seed(46748717)
 
-split <- rsample::initial_split(model_df_small, prop = 0.7)
+split <- rsample::initial_split(
+  model_df_small,
+  prop = 0.7,
+  strata = IS_DELAYED_15
+)
+
 training <- training(split)
 testing  <- testing(split)
 
 dim(training)
 dim(testing)
+
+# class balance in each split
+class_counts_train <- table(training$IS_DELAYED_15)
+class_props_train  <- prop.table(class_counts_train)
+
+class_counts_test <- table(testing$IS_DELAYED_15)
+class_props_test  <- prop.table(class_counts_test)
+
+class_counts_train
+round(100 * class_props_train, 2)
+
+class_counts_test
+round(100 * class_props_test, 2)
 ```
 
-We keep the feature set simple and close to the workbook. All variables
-used here are known before departure and are easy to explain. The next
-step follows directly from the earlier exploration: because the EDA
-showed useful patterns for time, distance, carrier and calendar
-variables, we carry those into the supervised models.
-
-There are also explicit assumptions here. We cap the modelling sample at
-`r N_MODEL` rows to keep the notebook workable, and we use a 70/30
-train-test split as a standard evaluation setup. Neither choice is the
-only possible one, but both are common and easy to explain.
+In Chapter 5 we found that meaningful delays are common enough to model,
+but the delayed class is still clearly smaller than the on-time class.
+To keep the analysis computationally manageable, we draw a sample of
+300,000 flights. In that sample, 57,620 flights are delayed and 242,380
+flights are on time, corresponding to 19.21% delayed flights and 80.79%
+on-time flights. The sampled data therefore preserve the same overall
+class pattern as the full modelling table. We then divide the sampled
+data into a training set and a testing set using a 70/30 split. Because
+delayed flights form the smaller class, we preserve the class
+proportions across both subsets. This is useful because it keeps the
+later model comparison easier to interpret: the models are trained and
+evaluated under essentially the same target distribution. The training
+set and testing have the same percentages with 19.21% for delayed
+flights and 80.79% for on-time flights. This imbalance matters when we
+evaluate the models. A classifier can look strong on overall accuracy
+simply by predicting the majority class most of the time. That would
+still be unsatisfactory in our setting, because the business problem
+from Chapter 1 is precisely about identifying flights with elevated
+delay risk early enough to act. For that reason, later model evaluation
+will not rely on accuracy alone.
 
 ```{r training_testing_comparison}
-# These plots are just a quick sanity check that training and testing
-# still look broadly similar after the split.
+# compare training and testing distributions
 split_compare <- rbind(
-  data.frame(split = "Training", training[, c("IS_DELAYED_15", "DISTANCE", "DEP_HOUR")]),
-  data.frame(split = "Testing", testing[, c("IS_DELAYED_15", "DISTANCE", "DEP_HOUR")])
+  data.frame(split = "Training", training[, c("IS_DELAYED_15", "DISTANCE", "SCHED_DEP_HOUR")]),
+  data.frame(split = "Testing",  testing[,  c("IS_DELAYED_15", "DISTANCE", "SCHED_DEP_HOUR")])
 )
 
-ggplot(split_compare, aes(x = IS_DELAYED_15, fill = split)) +
-  geom_bar(position = "dodge") +
-  labs(title = "Class balance in training and testing data",
-       x = "Delay class", y = "Number of flights")
+# class proportions by split
+class_share <- as.data.frame(prop.table(
+  table(split_compare$split, split_compare$IS_DELAYED_15),
+  margin = 1
+))
+names(class_share) <- c("split", "IS_DELAYED_15", "share")
 
-ggplot(split_compare, aes(x = DISTANCE, fill = split)) +
+ggplot(class_share, aes(x = IS_DELAYED_15, y = share, fill = split)) +
+  geom_col(position = "dodge") +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(
+    title = "Class balance in training and testing data",
+    x = "Delay class",
+    y = "Share of flights"
+  )
+
+ggplot(split_compare, aes(x = DISTANCE, y = after_stat(density), fill = split)) +
   geom_histogram(bins = 30, color = "white") +
   facet_wrap(~ split, ncol = 1) +
-  labs(title = "Distance distribution: training vs testing",
-       x = "Distance (miles)", y = "Count")
+  labs(
+    title = "Distance distribution: training vs testing",
+    x = "Distance (miles)",
+    y = "Density"
+  )
 
-ggplot(split_compare, aes(x = DEP_HOUR, fill = split)) +
+ggplot(split_compare, aes(x = SCHED_DEP_HOUR, y = after_stat(density), fill = split)) +
   geom_histogram(bins = 24, color = "white") +
   facet_wrap(~ split, ncol = 1) +
-  labs(title = "Departure-hour distribution: training vs testing",
-       x = "Scheduled departure hour", y = "Count")
+  labs(
+    title = "Scheduled departure hour: training vs testing",
+    x = "Scheduled departure hour",
+    y = "Density"
+  )
 ```
 
-These checks are simple but important. If training and testing look very
-different, then the model comparison is less reliable. Here we mainly
-want to see whether the split produced two similar samples.
+Before fitting the models, we compare the training and testing sets to
+check whether they still look similar after the split. This is a useful
+diagnostic, because model comparison is easier to interpret when the
+test data resemble the data on which the models were trained.\
+\
+The first plot shows that the proportion of delayed and on-time flights
+is effectively the same in both sets. This is what we wanted, since it
+means that the split did not distort the target distribution. The second
+plot compares the distribution of distance. In both sets, most flights
+are concentrated in the short- and medium-distance range, together with
+a long right tail toward longer routes. This fits the earlier findings
+from Chapters 5 and 6, where route length was one of the clearest
+dimensions of variation across flights. The third plot compares the
+distribution of scheduled departure hour. Again, the training and
+testing data look very similar. Most departures are concentrated between
+the morning and evening hours, with relatively few scheduled in the
+late-night period. This also matches the earlier exploratory findings,
+where schedule timing appeared as another important dimension in the
+data. Overall, these checks suggest that the train-test split produced
+two comparable samples. The target balance is preserved and two
+important predictors retain the same overall shape.\
+\
+To make the later comparison as fair as possible, we also define one
+shared evaluation function that will be used for every model. The
+function reports the same set of measures for every model: accuracy,
+recall, precision and F1 for the delayed class, together with the
+underlying confusion-matrix counts. We do not judge the modelling step
+by one number alone, but by whether it helps identify delayed flights in
+a way that is meaningful for the business problem.\
+\
+The second helper function implements a simple hard-voting rule that
+will be used later when we combine model predictions in an ensemble.
 
 ```{r model_eval_helpers, include=FALSE}
-# This helper function lets us calculate the same evaluation measures in
-# exactly the same way for every model we compare later on.
+# shared evaluation function for all models
 metric_summary <- function(actual, pred) {
   actual <- factor(actual, levels = c("On_time", "Delayed"))
-  pred   <- factor(pred, levels = c("On_time", "Delayed"))
+  pred   <- factor(pred,   levels = c("On_time", "Delayed"))
 
   tp <- sum(actual == "Delayed" & pred == "Delayed")
   tn <- sum(actual == "On_time" & pred == "On_time")
@@ -2100,11 +2236,14 @@ metric_summary <- function(actual, pred) {
     recall_delayed = recall,
     precision_delayed = precision,
     f1_delayed = f1,
-    tp = tp, tn = tn, fp = fp, fn = fn
+    tp = tp,
+    tn = tn,
+    fp = fp,
+    fn = fn
   )
 }
 
-# Hard voting means each model gets one vote and the majority decides.
+# hard-voting rule for later ensemble comparison
 hard_vote <- function(pred_df) {
   delayed_votes <- rowSums(pred_df == "Delayed")
   factor(
@@ -2116,25 +2255,96 @@ hard_vote <- function(pred_df) {
 
 ## 7.3 Model 1: C5.0 decision tree
 
+We start with a simple decision tree as our first classification model.
+This is a natural baseline because a tree is easy to inspect and easy to
+explain. If delay risk could already be separated by a few simple split
+rules, then we would have a model that is transparent and easy to
+interpret.
+
 ```{r c50_tree_model}
-# We start with a plain C5.0 tree because it is simple and gives a clear
-# baseline before trying more flexible models.
-model_tree <- C50::C5.0(IS_DELAYED_15 ~ ., data = training)
+# C5.0 decision tree
+model_tree <- C50::C5.0(
+  IS_DELAYED_15 ~ .,
+  data = training,
+  trials = 1
+)
 
 summary(model_tree)
 ```
 
-The decision tree is our first baseline because it is easy to explain.
-We can see which variables are used first and how the data gets split.
+The C5.0 output shows that the fitted tree stays at the root node and
+predicts only the majority class `On_time`. In other words, the model
+creates no actual split and classifies all flights as on time. The
+training error is 40,334 out of 210,000 flights or 19.2%, which is
+exactly the share of delayed flights in the training data. This means
+that the model reduces error simply by following the class imbalance.
+This is an important baseline result. It shows that, under the current
+class distribution and with a plain tree structure, the model does not
+move beyond the majority-class rule. From the business perspective of
+this project, that is not sufficient. A model that never flags delayed
+flights is not useful for pre-departure decision support, even if its
+overall error rate appears acceptable at first sight.\
+\
+To evaluate the model, we also compute predictions for both the training
+and testing data and summarize the results with the shared evaluation
+function from Section 7.2.
+
+```{r c50_tree_predictions}
+# Predictions on training and testing data
+pred_tree_train <- predict(model_tree, training)
+pred_tree_test  <- predict(model_tree, testing)
+
+# Evaluation with the shared metrics
+tree_train_metrics <- metric_summary(training$IS_DELAYED_15, pred_tree_train)
+tree_test_metrics  <- metric_summary(testing$IS_DELAYED_15, pred_tree_test)
+
+cat("Training performance:\n")
+print(tree_train_metrics)
+
+cat("\nTesting performance:\n")
+print(tree_test_metrics)
+```
+
+These results confirm the same pattern on the holdout data. Because the
+tree predicts only `On_time`, it achieves a test accuracy that is still
+relatively high simply because most flights are on time. At the same
+time, recall for the delayed class is zero, because the model never
+identifies a delayed flight. This is exactly why accuracy alone is not
+enough in this setting. The confusion matrices make this behaviour
+directly visible.
+
+```{r c50_tree_confusion}
+# confusion matrices on training and testing data
+cat("Confusion matrix on training data:\n")
+print(table(Actual = training$IS_DELAYED_15, Predicted = pred_tree_train))
+
+cat("\nConfusion matrix on testing data:\n")
+print(table(Actual = testing$IS_DELAYED_15, Predicted = pred_tree_test))
+```
+
+The confusion matrices make this behaviour directly visible. On the
+training data, the model correctly classifies the 169,666 on-time
+flights, but misses all 40,334 delayed flights. On the testing data, it
+correctly classifies the 72,714 on-time flights, but again misses all
+17,286 delayed flights. So although the overall test accuracy still
+looks reasonably high, the model is operationally useless for the actual
+problem of identifying flights with elevated delay risk.\
+\
+As an additional visual check, we also fit a shallow `rpart` tree. This
+is not meant to replace the C5.0 model, but only to see whether a small
+tree reveals any simple split conditions that are easy to display.
 
 ```{r tree_conditions_plot}
-# This shallow rpart tree is only meant to make the first split
-# conditions readable if the data supports any splits at all.
+# extra visual check: shallow rpart tree
 tree_plot_model <- rpart::rpart(
   IS_DELAYED_15 ~ .,
   data = training,
   method = "class",
-  control = rpart::rpart.control(maxdepth = 3, minsplit = 3000, cp = 0.001)
+  control = rpart::rpart.control(
+    maxdepth = 3,
+    minsplit = 3000,
+    cp = 0.001
+  )
 )
 
 if (nrow(tree_plot_model$frame) > 1 &&
@@ -2146,30 +2356,42 @@ if (nrow(tree_plot_model$frame) > 1 &&
 }
 ```
 
-The C5.0 summary is still the main output, but this extra shallow tree
-makes the first split rules easier to read.
+The shallow `rpart` check leads to the same conclusion. It also stays at
+the root node, so there are no split conditions to display. This
+reinforces the idea that a simple tree structure is too weak for this
+problem under the present setup.\
+\
+This result should not be interpreted as proof that the predictors
+contain no useful information. It only shows that a plain decision tree,
+under the current class imbalance and without further adjustments, is
+too conservative to identify the delayed class. That is exactly why this
+model is a useful baseline: it shows what a very simple and
+interpretable classifier fails to do, and it motivates the move to more
+flexible models in the next sections.
 
-One thing that can happen with this baseline tree is that it stays very
-small, or even collapses to a single root node. If that happens, the
-reason is usually not that the code failed, but that the model does not
-see any split that improves enough on the majority-class prediction. In
-our data, the delayed class is clearly smaller than the on-time class,
-so a very conservative tree can reduce a lot of training error by simply
-predicting `On_time` for almost everything.
+```{r c50_tree_store_results}
+# Store test performance for later model comparison
+tree_test_metrics$model <- "C5.0 tree"
 
-That is an important result in itself. It tells us that a plain baseline
-tree is too conservative for this problem and too focused on overall
-error. This fits the business setting only partly, because for us a
-missed real delay matters more than a false alarm. That is exactly why
-the next steps follow: after this baseline, we test approaches such as
-boosting and cost-sensitive classification that can push the model to
-pay more attention to delayed flights.
+model_results <- tree_test_metrics[, c(
+  "model", "accuracy", "recall_delayed", "precision_delayed",
+  "f1_delayed", "tp", "tn", "fp", "fn"
+)]
+
+model_results
+```
 
 ## 7.4 Inspecting tree behaviour on unseen data
 
+The previous section showed that the C5.0 tree stays at the root node on
+the training data and predicts only the majority class. In this section,
+we check whether that same behaviour also appears on unseen flights.
+This matters because a model should not be judged only on the data on
+which it was fitted. The relevant question is whether it remains useful
+when applied to new observations.
+
 ```{r c50_tree_test_evaluation}
-# We evaluate the baseline tree on unseen data with both a confusion
-# matrix and a small metric summary.
+# evaluate the baseline tree on unseen test data
 pred_test <- predict(model_tree, testing)
 
 gmodels::CrossTable(
@@ -2182,47 +2404,58 @@ gmodels::CrossTable(
   dnn = c("Actual delay status", "Predicted delay status")
 )
 
-# Accuracy
+# accuracy on unseen data
 mean(pred_test == testing$IS_DELAYED_15)
 
-actual <- testing$IS_DELAYED_15
-pred   <- pred_test
-
-tp <- sum(actual == "Delayed" & pred == "Delayed")
-tn <- sum(actual == "On_time" & pred == "On_time")
-fp <- sum(actual == "On_time" & pred == "Delayed")
-fn <- sum(actual == "Delayed" & pred == "On_time")
-
-accuracy  <- (tp + tn) / (tp + tn + fp + fn)
-recall    <- tp / (tp + fn)
-precision <- tp / (tp + fp)
-f1_tree   <- 2 * recall * precision / (recall + precision)
-
-data.frame(
-  accuracy = accuracy,
-  recall_delayed = recall,
-  precision_delayed = precision,
-  f1_delayed = f1_tree,
-  tp = tp, tn = tn, fp = fp, fn = fn
-)
+# shared evaluation metrics from Section 7.2
+tree_test_metrics <- metric_summary(testing$IS_DELAYED_15, pred_test)
+tree_test_metrics
 ```
 
-The confusion matrix matters because accuracy alone is not enough. For
-this problem, false negatives matter most: flights predicted as on time
-that are actually delayed. So recall is especially important here. This
-is why the next model steps follow: after the baseline tree, we
-deliberately try approaches that may change that recall/precision
-balance.
+The confusion matrix shows that the tree again predicts every flight as
+`On_time`. On the testing data, this means that all 72,714 on-time
+flights are classified correctly, while all 17,286 delayed flights are
+missed. The resulting test accuracy is 0.8079, or about 80.8%. At first
+sight, that accuracy may seem acceptable. However, it is entirely driven
+by the class imbalance in the data. Because most flights are on time, a
+classifier can obtain a relatively high accuracy without identifying any
+delayed flights at all. That is exactly what happens here. The recall
+for the delayed class is 0, meaning that the model fails completely on
+the class that matters most for our decision problem. Precision and the
+F1-score for the delayed class are not defined here, because the tree
+never predicts a single delayed flight. In practical terms, this
+reinforces the same conclusion: the model offers no useful delay
+warnings on unseen data.\
+\
+This makes the baseline result very clear. A plain decision tree is too
+conservative under the current setup and simply follows the majority
+class. So even though the model appears acceptable on overall accuracy,
+it is not useful for pre-departure delay detection. This motivates the
+next modelling steps, where we consider approaches that may achieve a
+better balance between identifying delayed flights and avoiding too many
+false alarms.
 
 ## 7.5 Altering tree behaviour: boosting
 
-```{r boosted_c50_evaluation}
-# Boosting lets the tree model correct earlier mistakes, so this is our
-# first check of whether a slightly richer tree setup helps.
-model_tree_boost <- C50::C5.0(IS_DELAYED_15 ~ ., data = training, trials = 10)
+The plain C5.0 tree in the previous section stayed at the root node and
+simply predicted the majority class. A natural next step is therefore to
+make the tree model more flexible. We do this by using boosting. The
+idea of boosting is that later trees focus more strongly on observations
+that were handled poorly earlier on, so that the combined model may
+capture structure that a single tree misses.
 
+```{r boosted_c50_evaluation}
+# boosted C5.0 model: let multiple trees work sequentially
+model_tree_boost <- C50::C5.0(
+  IS_DELAYED_15 ~ .,
+  data = training,
+  trials = 10
+)
+
+# predictions on unseen test data
 pred_boost <- predict(model_tree_boost, testing)
 
+# confusion matrix on test data
 gmodels::CrossTable(
   testing$IS_DELAYED_15,
   pred_boost,
@@ -2233,42 +2466,76 @@ gmodels::CrossTable(
   dnn = c("Actual delay status", "Predicted delay status")
 )
 
-tp_boost <- sum(actual == "Delayed" & pred_boost == "Delayed")
-tn_boost <- sum(actual == "On_time" & pred_boost == "On_time")
-fp_boost <- sum(actual == "On_time" & pred_boost == "Delayed")
-fn_boost <- sum(actual == "Delayed" & pred_boost == "On_time")
+# shared evaluation metrics from Section 7.2
+boost_test_metrics <- metric_summary(testing$IS_DELAYED_15, pred_boost)
+boost_test_metrics$model <- "Boosted C5.0"
 
-data.frame(
-  model = "Boosted C5.0",
-  accuracy = (tp_boost + tn_boost) / (tp_boost + tn_boost + fp_boost + fn_boost),
-  recall_delayed = tp_boost / (tp_boost + fn_boost),
-  precision_delayed = tp_boost / (tp_boost + fp_boost),
-  f1_delayed = 2 * (tp_boost / (tp_boost + fn_boost)) * (tp_boost / (tp_boost + fp_boost)) /
-    ((tp_boost / (tp_boost + fn_boost)) + (tp_boost / (tp_boost + fp_boost)))
-)
+boost_test_metrics <- boost_test_metrics[, c(
+  "model", "accuracy", "recall_delayed",
+  "precision_delayed", "f1_delayed",
+  "tp", "tn", "fp", "fn"
+)]
+
+boost_test_metrics
 ```
 
-Boosting is useful here because it lets the model correct some mistakes
-from earlier trees. We keep the number of trials low so the workflow
-stays simple. The choice of 10 trials is an explicit assumption: enough
-to see whether repeated trees help, but still simple and workbook-like.
+The confusion matrix shows that the boosted model still predicts every
+flight as `On_time` again. On the testing data, this means that all
+72,714 on-time flights are classified correctly, while all 17,286
+delayed flights are missed. So even after boosting, the model produces
+no true positives at all. The resulting accuracy is again 0.8079, which
+is about 80.8%. On its own, that number may look acceptable, but here it
+is misleading. The model reaches this accuracy only because on-time
+flights are the majority class. In practical terms, the boosted tree
+still behaves like a majority-class classifier rather than a useful
+delay predictor.\
+\
+This is also reflected in the other evaluation measures. Recall for the
+delayed class is 0, because the model fails to identify any delayed
+flight. Precision and the F1-score for the delayed class are not defined
+here, because the model never predicts a single delayed case. In
+practical terms, that again means that the model provides no useful
+delay warnings.\
+\
+This is an informative result. Boosting makes the tree model more
+flexible in principle, but under the current setup it does not change
+the basic behaviour of the classifier. The model remains too
+conservative and still follows the majority class. So although boosting
+is a logical next step after the plain tree, it does not solve the core
+problem here. This motivates moving further away from simple tree-based
+majority-class behaviour in the next models.
 
 ## 7.6 Altering tree behaviour: cost-sensitive classification
 
+A second way to change tree behaviour is to use cost-sensitive
+classification. This fits the business setting of the project well,
+because missing a truly delayed flight is more problematic than raising
+a false alarm for a flight that later turns out to be on time as
+explained in the introduction of this chapter. We therefore assign a
+higher cost to missed delays than to false positives and check whether
+that changes the behaviour of the tree.
+
 ```{r cost_sensitive_c50_evaluation}
-# The cost matrix makes missed delayed flights more expensive, which
-# matches the business preference for higher recall.
-cost_matrix <- matrix(c(NA, 1,
-                        2, NA),
-                      nrow = 2,
-                      ncol = 2,
-                      byrow = FALSE)
+# cost-sensitive C5.0: make missed delays more expensive than false alarms
+cost_matrix <- matrix(
+  c(NA, 1,
+    2,  NA),
+  nrow = 2,
+  ncol = 2,
+  byrow = FALSE
+)
 rownames(cost_matrix) <- colnames(cost_matrix) <- c("Delayed", "On_time")
 
-model_tree_cost <- C50::C5.0(IS_DELAYED_15 ~ ., data = training, costs = cost_matrix)
+model_tree_cost <- C50::C5.0(
+  IS_DELAYED_15 ~ .,
+  data = training,
+  costs = cost_matrix
+)
 
+# predictions on unseen test data
 pred_cost <- predict(model_tree_cost, testing)
 
+# confusion matrix on test data
 gmodels::CrossTable(
   testing$IS_DELAYED_15,
   pred_cost,
@@ -2279,36 +2546,55 @@ gmodels::CrossTable(
   dnn = c("Actual delay status", "Predicted delay status")
 )
 
-tp_cost <- sum(actual == "Delayed" & pred_cost == "Delayed")
-tn_cost <- sum(actual == "On_time" & pred_cost == "On_time")
-fp_cost <- sum(actual == "On_time" & pred_cost == "Delayed")
-fn_cost <- sum(actual == "Delayed" & pred_cost == "On_time")
+# shared evaluation metrics from Section 7.2
+cost_test_metrics <- metric_summary(testing$IS_DELAYED_15, pred_cost)
+cost_test_metrics$model <- "Cost-sensitive C5.0"
 
-data.frame(
-  model = "Cost-sensitive C5.0",
-  accuracy = (tp_cost + tn_cost) / (tp_cost + tn_cost + fp_cost + fn_cost),
-  recall_delayed = tp_cost / (tp_cost + fn_cost),
-  precision_delayed = tp_cost / (tp_cost + fp_cost),
-  f1_delayed = 2 * (tp_cost / (tp_cost + fn_cost)) * (tp_cost / (tp_cost + fp_cost)) /
-    ((tp_cost / (tp_cost + fn_cost)) + (tp_cost / (tp_cost + fp_cost)))
-)
+cost_test_metrics <- cost_test_metrics[, c(
+  "model", "accuracy", "recall_delayed",
+  "precision_delayed", "f1_delayed",
+  "tp", "tn", "fp", "fn"
+)]
+
+cost_test_metrics
 ```
 
-This step fits the business problem well. We explicitly say that missing
-a real delay is worse than a false alarm. That usually increases recall,
-even if precision or accuracy drops a bit.
+The confusion matrix shows that the cost-sensitive tree still predicts
+every flight as On_time. So even with a higher penalty on missed delays,
+the model produces no true positives at all. The model still behaves
+like a majority-class classifier rather than a useful delay predictor.
+Cost-sensitive classification is conceptually well aligned with the
+business problem, since it allows us to penalize missed delays more
+heavily than false alarms. However, under the current specification, it
+does not change the basic behaviour of the tree. The classifier remains
+too conservative and still follows the majority class. So although this
+is a logical next step after the plain and boosted trees, it does not
+solve the core problem in our data.
 
 ## 7.7 Model 2: Random Forest
 
+The next model is a random forest. This is a natural step after the
+earlier tree-based models, because a random forest keeps the tree logic
+but reduces the instability of a single tree by averaging across many
+trees. In that way, it can capture more complex patterns than a plain
+decision tree while still remaining relatively interpretable through
+variable-importance measures.\
+\
+In this implementation, however, we cannot use predictors with very many
+categories. In particular, `ORIGIN` and `DEST` have too many levels for
+the `randomForest` package. We therefore work with a reduced feature set
+that keeps the main route, timing, calendar and carrier information, but
+excludes the highest variaty airport variables. We also set the forest
+to 200 trees as a practical choice: large enough to stabilize the model,
+but still workable in this notebook.
+
 ```{r random_forest_evaluation}
-# The random forest serves as a second benchmark, but on a reduced
-# feature set because of the category limit in this implementation.
+# Random forest exclude ORIGIN and DEST
 rf_vars <- c(
   "IS_DELAYED_15",
   "DISTANCE",
   "CRS_ELAPSED_TIME",
-  "DEP_HOUR",
-  "ARR_HOUR",
+  "SCHED_DEP_HOUR",
   "MONTH",
   "WEEKDAY",
   "OP_CARRIER"
@@ -2318,34 +2604,83 @@ training_rf <- training[, rf_vars]
 testing_rf  <- testing[, rf_vars]
 
 set.seed(46748717)
-model_rf <- randomForest::randomForest(IS_DELAYED_15 ~ ., data = training_rf, ntree = 200)
-
-pred_rf <- predict(model_rf, testing_rf)
-
-tp_rf <- sum(actual == "Delayed" & pred_rf == "Delayed")
-tn_rf <- sum(actual == "On_time" & pred_rf == "On_time")
-fp_rf <- sum(actual == "On_time" & pred_rf == "Delayed")
-fn_rf <- sum(actual == "Delayed" & pred_rf == "On_time")
-
-data.frame(
-  model = "Random forest",
-  accuracy = (tp_rf + tn_rf) / (tp_rf + tn_rf + fp_rf + fn_rf),
-  recall_delayed = tp_rf / (tp_rf + fn_rf),
-  precision_delayed = tp_rf / (tp_rf + fp_rf),
-  f1_delayed = 2 * (tp_rf / (tp_rf + fn_rf)) * (tp_rf / (tp_rf + fp_rf)) /
-    ((tp_rf / (tp_rf + fn_rf)) + (tp_rf / (tp_rf + fp_rf)))
+model_rf <- randomForest::randomForest(
+  IS_DELAYED_15 ~ .,
+  data = training_rf,
+  ntree = 200,
+  importance = TRUE
 )
 
+# predictions on unseen data
+pred_rf <- predict(model_rf, testing_rf)
+
+# confusion matrix on test data
+gmodels::CrossTable(
+  testing_rf$IS_DELAYED_15,
+  pred_rf,
+  prop.chisq = FALSE,
+  prop.c = FALSE,
+  prop.r = FALSE,
+  prop.t = FALSE,
+  dnn = c("Actual delay status", "Predicted delay status")
+)
+
+# shared evaluation metrics from Section 7.2
+rf_test_metrics <- metric_summary(testing_rf$IS_DELAYED_15, pred_rf)
+rf_test_metrics$model <- "Random forest"
+
+rf_test_metrics <- rf_test_metrics[, c(
+  "model", "accuracy", "recall_delayed",
+  "precision_delayed", "f1_delayed",
+  "tp", "tn", "fp", "fn"
+)]
+
+rf_test_metrics
+```
+
+The random forest does improve on the earlier tree-based baselines a
+little. On the testing data, it correctly identifies 1,048 delayed
+flights, while still missing 16,238 delayed flights. It also incorrectly
+flags 1,983 on-time flights as delayed. This gives an accuracy of
+0.7975, a delayed-class recall of 0.0606, a precision of 0.3458, and an
+F1-score of 0.1032. This means that the model no longer behaves as a
+pure majority-class classifier. Unlike the earlier C5.0 variants, the
+random forest does identify some delayed flights. That is an important
+result, because it suggests that the pre-departure predictors do contain
+at least some useful predictive signal. At the same time, recall remains
+very low. The model still misses the large majority of actual delays, so
+the improvement over the earlier tree models is real but limited.\
+\
+The confusion matrix makes that trade-off visible. Most flights are
+still predicted as On_time, which keeps the number of false positives
+relatively low and supports a fairly high overall accuracy. However, the
+model remains too conservative for the business objective of identifying
+flights with elevated delay risk before departure.
+
+```{r random_forest_importance}
 importance(model_rf)
 varImpPlot(model_rf, main = "Random forest variable importance")
 ```
 
-The random forest is a second benchmark next to the single tree. Here we
-use a slightly simpler feature set, because this `randomForest`
-implementation cannot handle predictors with too many categories, such
-as `ORIGIN` and `DEST`. We also use 200 trees as a practical benchmark:
-large enough to stabilize the forest somewhat, but still light enough
-for this notebook.
+The variable-importance results help explain what the random forest is
+using. Across both importance measures, the strongest predictors are
+scheduled departure hour, distance and scheduled elapsed time. This
+suggests that the forest relies mainly on schedule timing and route
+characteristics when distinguishing delayed from on-time flights.
+`MONTH` still contributes some information, but clearly less than the
+three main predictors, while `WEEKDAY` and `OP_CARRIER` are the least
+important variables in this reduced feature set.
+
+This pattern fits well with the earlier exploratory analysis. In
+Chapters 5 and 6, timing and route-length variables already emerged as
+the clearest sources of structure in the data. The random forest
+importance plot points in the same direction: even in a more flexible
+supervised model, the main predictive information still comes from when
+a flight is scheduled and from the type of route it operates. At the
+same time, the earlier performance results show that this information is
+not strong enough for the forest to identify delayed flights well. This
+plot confirms which variables drive the model, not because it changes
+the overall conclusion that predictive performance remains limited.
 
 ## 7.8 Comparison
 
@@ -2386,14 +2721,24 @@ comparison_table <- data.frame(
 comparison_table
 ```
 
-For this case, recall on delayed flights is still the most important
-metric. A model with slightly lower accuracy can still be better if it
-finds more real delays.
-
-The extra F1 column is useful because it summarizes the balance between
-precision and recall in one number. We still do not treat it as the main
-metric, but it helps us see when a model improves one of the two at the
-expense of the other.
+The comparison table shows all models in the same way. That matters
+because accuracy alone is misleading here: with many more on-time
+flights than delayed flights, a model can look fine on accuracy while
+still missing the real problem. A model with a little lower accuracy can
+still be better if it finds more real delays. Precision and F1 help us
+check whether that improvement comes with too many false alarms. The
+table shows a clear result. The C5.0 tree, Boosted C5.0, and
+Cost-sensitive C5.0 all end up with the same outcome: accuracy of
+0.8095, but recall of 0 for delayed flights. So in practice, they all
+behave like majority-class models and miss every delayed flight. The
+Random Forest is the only model that improves on this. Its accuracy is
+slightly lower at 0.796, but it does identify some delayed flights, with
+recall 0.068, precision 0.330, and F1 0.112 (this number summarizes how
+well the model balances finding delayed flights and avoiding too many
+false alarms.) This is still weak, but it is the best result of the
+four. Overall, the main issue is not accuracy but delayed-flight
+detection. Knowing that, the random forest performs best, but it is
+still not strong enough as a final solution.
 
 ## 7.9 Why one split is not enough
 
