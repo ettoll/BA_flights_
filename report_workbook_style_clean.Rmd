@@ -1201,7 +1201,7 @@ stamps, airport labels or post-event variables, the resulting structure
 would not contain meaningful pre-departure differences.
 
 | Variable | Decision | Treatment | Reason |
-|-----------------|-----------------|-----------------|---------------------|
+|-----------------|-----------------|-----------------|--------------------|
 | `DISTANCE` | Keep | Standardize | Numeric pre-departure variable; potentially informative for route structure |
 | `CRS_E LAPSED_TIME` | Keep | Standardize | Planned flight duration, pre-departure and useful as a compact route characteristic |
 | `SCH ED_DEP_HOUR` | T ransform | Standardize | Seems better interpretable than raw scheduled departure time from exploratory analysis |
@@ -1255,7 +1255,7 @@ flights_structure$IS_WEEKEND <- ifelse(
 The table below then summarizes what we did for each variable and why.
 
 | Feature | Preparation | Why |
-|------------------|------------------|------------------------------------|
+|-------------------|-------------------|------------------------------------|
 | `DISTANCE` | Standardize | Already meaningful as a numeric feature and scaling makes it comparable to the other variables |
 | `CRS_EL APSED_TIME` | Standardize | Planned numeric feature and scaling is sufficient, though some overlap with distance is expected |
 | `SCHE D_DEP_HOUR` | Encode cyclically, then standardize | Time of day is circular, so sine/cosine encoding avoids jumps at midnight |
@@ -2684,70 +2684,79 @@ the overall conclusion that predictive performance remains limited.
 
 ## 7.8 Comparison
 
+To compare the models consistently, we place their main evaluation
+measures side by side. This is important because overall accuracy alone
+is misleading in this setting. Since most flights are on time, a model
+can achieve a fairly high accuracy while still failing completely on the
+delayed class. For that reason, recall, precision and the F1-score for
+delayed flights are more informative than accuracy alone.
+
 ```{r model_comparison_table}
-# This table puts the main classification metrics for all models next to
-# each other so the trade-offs are easier to compare.
-comparison_table <- data.frame(
-  model = c("C5.0 tree", "Boosted C5.0", "Cost-sensitive C5.0", "Random forest"),
-  accuracy = c(
-    accuracy,
-    (tp_boost + tn_boost) / (tp_boost + tn_boost + fp_boost + fn_boost),
-    (tp_cost + tn_cost) / (tp_cost + tn_cost + fp_cost + fn_cost),
-    (tp_rf + tn_rf) / (tp_rf + tn_rf + fp_rf + fn_rf)
+# combine the stored metric summaries from the earlier sections
+comparison_table <- rbind(
+  data.frame(
+    model = "C5.0 tree",
+    accuracy = tree_test_metrics$accuracy,
+    recall_delayed = tree_test_metrics$recall_delayed,
+    precision_delayed = tree_test_metrics$precision_delayed,
+    f1_delayed = tree_test_metrics$f1_delayed
   ),
-  recall_delayed = c(
-    recall,
-    tp_boost / (tp_boost + fn_boost),
-    tp_cost / (tp_cost + fn_cost),
-    tp_rf / (tp_rf + fn_rf)
+  data.frame(
+    model = "Boosted C5.0",
+    accuracy = boost_test_metrics$accuracy,
+    recall_delayed = boost_test_metrics$recall_delayed,
+    precision_delayed = boost_test_metrics$precision_delayed,
+    f1_delayed = boost_test_metrics$f1_delayed
   ),
-  precision_delayed = c(
-    precision,
-    tp_boost / (tp_boost + fp_boost),
-    tp_cost / (tp_cost + fp_cost),
-    tp_rf / (tp_rf + fp_rf)
+  data.frame(
+    model = "Cost-sensitive C5.0",
+    accuracy = cost_test_metrics$accuracy,
+    recall_delayed = cost_test_metrics$recall_delayed,
+    precision_delayed = cost_test_metrics$precision_delayed,
+    f1_delayed = cost_test_metrics$f1_delayed
   ),
-  f1_delayed = c(
-    f1_tree,
-    2 * (tp_boost / (tp_boost + fn_boost)) * (tp_boost / (tp_boost + fp_boost)) /
-      ((tp_boost / (tp_boost + fn_boost)) + (tp_boost / (tp_boost + fp_boost))),
-    2 * (tp_cost / (tp_cost + fn_cost)) * (tp_cost / (tp_cost + fp_cost)) /
-      ((tp_cost / (tp_cost + fn_cost)) + (tp_cost / (tp_cost + fp_cost))),
-    2 * (tp_rf / (tp_rf + fn_rf)) * (tp_rf / (tp_rf + fp_rf)) /
-      ((tp_rf / (tp_rf + fn_rf)) + (tp_rf / (tp_rf + fp_rf)))
+  data.frame(
+    model = "Random forest",
+    accuracy = rf_test_metrics$accuracy,
+    recall_delayed = rf_test_metrics$recall_delayed,
+    precision_delayed = rf_test_metrics$precision_delayed,
+    f1_delayed = rf_test_metrics$f1_delayed
   )
 )
 
 comparison_table
 ```
 
-The comparison table shows all models in the same way. That matters
-because accuracy alone is misleading here: with many more on-time
-flights than delayed flights, a model can look fine on accuracy while
-still missing the real problem. A model with a little lower accuracy can
-still be better if it finds more real delays. Precision and F1 help us
-check whether that improvement comes with too many false alarms. The
-table shows a clear result. The C5.0 tree, Boosted C5.0, and
-Cost-sensitive C5.0 all end up with the same outcome: accuracy of
-0.8095, but recall of 0 for delayed flights. So in practice, they all
-behave like majority-class models and miss every delayed flight. The
-Random Forest is the only model that improves on this. Its accuracy is
-slightly lower at 0.796, but it does identify some delayed flights, with
-recall 0.068, precision 0.330, and F1 0.112 (this number summarizes how
-well the model balances finding delayed flights and avoiding too many
-false alarms.) This is still weak, but it is the best result of the
-four. Overall, the main issue is not accuracy but delayed-flight
-detection. Knowing that, the random forest performs best, but it is
-still not strong enough as a final solution.
+The table shows a clear pattern. The `C5.0 tree`, `Boosted C5.0`, and
+`Cost-sensitive C5.0` all end up with exactly the same practical
+outcome: an accuracy of 0.8079, but a delayed-class recall of 0 and
+behave like majority-class classifiers and fail to identify any delayed
+flights at all. Their precision and F1-score for the delayed class are
+therefore not defined, because they never predict a single delayed case.
+The `Random forest` is the only model that improves on this behavior.
+Its accuracy is slightly lower at 0.7975, but it does identify some
+delayed flights. On the testing data, it reaches a delayed-class recall
+of 0.0606, a precision of 0.3458 and an F1-score of 0.1032. These values
+are still low, so the model is far from strong. However, it is the only
+model in this comparison that moves beyond trivial majority-class
+prediction. Overall, the main issue is identifying delayed flights early
+enough to be useful. From that perspective, the random forest performs
+best among the models considered so far, but it is still not strong
+enough to serve as a final solution.
 
-## 7.9 Why one split is not enough
+## 7.9 Multiple splits
 
-One train-test split gives only one answer. To see whether our
-conclusions are stable, we repeat the same evaluation several times on a
-smaller fixed sample. We keep this step simple and limit it to three
-different model behaviours: a plain tree, a cost-sensitive tree and the
-random forest. We do not repeat every model from above, because that
-would mainly add runtime without adding much new insight.
+The comparison in the previous section was based on one particular
+train-test split. That gives a useful first answer, but it does not show
+how sensitive the results are to the exact split that happened to be
+drawn. To make this visible, we repeat the same evaluation several times
+on a smaller fixed sample. We focus on three distinct model behaviours:
+a plain C5.0 tree, a cost-sensitive C5.0 tree and the random forest. In
+addition, we include a simple hard-vote ensemble based on these models.
+The goal is to examine whether the main conclusions remain stable across
+repeated train-test splits. We repeat the evaluation 8 times on a subset
+of 60,000 observations. This is sufficient to make instability visible
+without making the notebook too computationally heavy.
 
 ```{r repeated_evaluation}
 set.seed(46748717)
@@ -2755,8 +2764,7 @@ N_EVAL <- min(60000, nrow(model_df_small))
 idx_eval <- sample(seq_len(nrow(model_df_small)), N_EVAL)
 eval_df <- model_df_small[idx_eval, ]
 
-# We repeat the same evaluation several times on the same smaller sample
-# so we can see how much results move around across random splits.
+# multiple splits
 N_REPEATS <- 8
 repeated_results <- data.frame()
 
@@ -2766,30 +2774,36 @@ for (i in seq_len(N_REPEATS)) {
   training_eval <- rsample::training(split_eval)
   testing_eval  <- rsample::testing(split_eval)
 
-  # Plain decision tree
+  # plain decision tree
   tree_eval <- C50::C5.0(IS_DELAYED_15 ~ ., data = training_eval)
   pred_tree_eval <- predict(tree_eval, testing_eval)
   metrics_tree_eval <- metric_summary(testing_eval$IS_DELAYED_15, pred_tree_eval)
   metrics_tree_eval$model <- "C5.0 tree"
   metrics_tree_eval$iteration <- i
 
-  # Cost-sensitive tree
+  # cost-sensitive tree
   cost_eval <- C50::C5.0(IS_DELAYED_15 ~ ., data = training_eval, costs = cost_matrix)
   pred_cost_eval <- predict(cost_eval, testing_eval)
   metrics_cost_eval <- metric_summary(testing_eval$IS_DELAYED_15, pred_cost_eval)
   metrics_cost_eval$model <- "Cost-sensitive C5.0"
   metrics_cost_eval$iteration <- i
 
-  # Random forest on the reduced feature set
+  # random forest on the reduced feature set
   training_eval_rf <- training_eval[, rf_vars]
   testing_eval_rf  <- testing_eval[, rf_vars]
-  rf_eval <- randomForest::randomForest(IS_DELAYED_15 ~ ., data = training_eval_rf, ntree = 100)
+
+  rf_eval <- randomForest::randomForest(
+    IS_DELAYED_15 ~ .,
+    data = training_eval_rf,
+    ntree = 100
+  )
+
   pred_rf_eval <- predict(rf_eval, testing_eval_rf)
   metrics_rf_eval <- metric_summary(testing_eval_rf$IS_DELAYED_15, pred_rf_eval)
   metrics_rf_eval$model <- "Random forest"
   metrics_rf_eval$iteration <- i
 
-  # Simple hard-vote ensemble based on the three models above
+  # hard-vote ensemble of the three models above
   pred_ensemble_eval <- hard_vote(data.frame(
     tree = pred_tree_eval,
     cost_sensitive = pred_cost_eval,
@@ -2808,69 +2822,102 @@ for (i in seq_len(N_REPEATS)) {
   )
 }
 
-# We compare the spread in accuracy and recall, not just the average.
+# accuracy across repeated splits
 ggplot(repeated_results, aes(x = model, y = accuracy)) +
   geom_boxplot() +
-  labs(title = "Accuracy across repeated train-test splits",
-       x = "Model", y = "Accuracy") +
+  labs(
+    title = "Accuracy across repeated train-test splits",
+    x = "Model",
+    y = "Accuracy"
+  ) +
   theme(axis.text.x = element_text(angle = 25, hjust = 1))
 
+# recall across repeated splits
 ggplot(repeated_results, aes(x = model, y = recall_delayed)) +
   geom_boxplot() +
-  labs(title = "Recall across repeated train-test splits",
-       x = "Model", y = "Recall for delayed flights") +
+  labs(
+    title = "Recall across repeated train-test splits",
+    x = "Model",
+    y = "Recall for delayed flights"
+  ) +
   theme(axis.text.x = element_text(angle = 25, hjust = 1))
 
-aggregate(
-  cbind(accuracy, recall_delayed, precision_delayed, f1_delayed) ~ model,
-  data = repeated_results,
-  FUN = mean
-)
+# mean performance across repeats
+repeated_summary <- dplyr::group_by(repeated_results, model) |>
+  dplyr::summarise(
+    mean_accuracy = mean(accuracy, na.rm = TRUE),
+    mean_recall_delayed = mean(recall_delayed, na.rm = TRUE),
+    mean_precision_delayed = mean(precision_delayed, na.rm = TRUE),
+    mean_f1_delayed = mean(f1_delayed, na.rm = TRUE),
+    sd_accuracy = sd(accuracy, na.rm = TRUE),
+    sd_recall_delayed = sd(recall_delayed, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+repeated_summary
 ```
 
-This step matters because model performance is not just one number. Some
-models look more stable across splits, while others move around more.
-That is especially important here, because we want a model that behaves
-reasonably well and not only on one lucky test set. So when reading
-these boxplots, the spread matters almost as much as the center. A model
-with slightly lower average performance but much less variation can
-still be more trustworthy in practice.
-
-There are explicit assumptions here too: we repeat the evaluation 8
-times on a subset of `r N_EVAL` rows. That is not meant as a definitive
-validation study, but as a practical way to make instability visible
-without making the notebook too heavy.
+The boxplots and table show a very clear pattern. The plain C5.0 tree,
+cost-sensitive C5.0 and the hard-vote ensemble have again no variation
+at all. However, this stability is not a strength in substantive terms.
+They still predict the majority class and achieve recall equal to zero
+for delayed flights on every repeated split. The random forest behaves
+differently. Its accuracy is slightly lower and shows some variation
+across splits, but it is also the only model that consistently achieves
+a recall above zero for delayed flights. In this setting, combining weak
+and highly conservative models does not improve delayed-flight
+detection. So the repeated-split results suggest that the main
+limitation is not just one unlucky split, but the underlying weakness of
+the simpler tree-based models for this task.
 
 ## 7.10 Looking beyond one threshold
 
-So far we mostly looked at class labels such as "Delayed" or "On_time".
-ROC curves and AUC add another view: they show how well the model ranks
-flights from lower to higher delay risk across many possible thresholds.
-We only include this for models that return usable class probabilities.
-That is an important restriction here: the cost-sensitive C5.0 model is
-built to change the classification decision under asymmetric costs, so
-its output is not treated as an ordinary probability ranking for ROC/AUC
-purposes.
+So far, we mainly evaluated models through final class labels such as
+`Delayed` and `On_time`. That is useful for operational interpretation,
+because in practice the airline ultimately needs a yes-or-no decision.
+However, this approach fixes one classification threshold at the outset.
+ROC curves and the AUC provide a different perspective: they show how
+well a model ranks flights from lower to higher delay risk across many
+possible thresholds.\
+\
+We only include this analysis for models that return usable class
+probabilities. That is an important restriction here. The cost-sensitive
+C5.0 model was designed to change the classification decision under
+asymmetric costs, so we do not treat its output as an ordinary
+probability ranking for ROC/AUC purposes. For that reason, we focus on
+the plain C5.0 tree and the random forest.
 
 ```{r roc_auc}
-# For ROC/AUC we need predicted probabilities instead of final class labels.
+# for ROC/AUC we need predicted probabilities rather than final class labels
 tree_prob <- predict(model_tree, testing, type = "prob")[, "Delayed"]
 rf_prob   <- predict(model_rf, testing_rf, type = "prob")[, "Delayed"]
 
-# Each ROC curve shows how the trade-off changes when we move the decision threshold.
-roc_tree <- pROC::roc(testing$IS_DELAYED_15, tree_prob,
-                      levels = c("On_time", "Delayed"), quiet = TRUE)
-roc_rf   <- pROC::roc(testing_rf$IS_DELAYED_15, rf_prob,
-                      levels = c("On_time", "Delayed"), quiet = TRUE)
+# ROC curves
+roc_tree <- pROC::roc(
+  testing$IS_DELAYED_15,
+  tree_prob,
+  levels = c("On_time", "Delayed"),
+  quiet = TRUE
+)
 
-plot(roc_tree, col = "steelblue", main = "ROC curves on the testing data")
+roc_rf <- pROC::roc(
+  testing_rf$IS_DELAYED_15,
+  rf_prob,
+  levels = c("On_time", "Delayed"),
+  quiet = TRUE
+)
+
+plot(roc_tree, col = "blue", main = "ROC curves on the testing data")
 lines(roc_rf, col = "darkgreen")
-legend("bottomright",
-       legend = c("C5.0 tree", "Random forest"),
-       col = c("steelblue", "darkgreen"),
-       lwd = 2, bty = "n")
+legend(
+  "bottomright",
+  legend = c("C5.0 tree", "Random forest"),
+  col = c("blue", "darkgreen"),
+  lwd = 2,
+  bty = "n"
+)
 
-# The AUC table gives one compact summary per model.
+# AUC summary table
 auc_table <- data.frame(
   model = c("C5.0 tree", "Random forest"),
   auc = c(
@@ -2882,61 +2929,96 @@ auc_table <- data.frame(
 auc_table
 ```
 
-AUC is useful here because it is not tied to one single threshold. We
-still keep the confusion matrix and recall as our main practical view,
-because the airline eventually needs a yes/no decision. But AUC helps us
-check whether a model is at least ranking higher-risk flights above
-lower-risk ones. In the ROC plot, curves that sit higher and more to the
-left indicate better ranking performance. The AUC table then summarizes
-that graph in one value, but the graph itself is useful because it shows
-whether model differences are large or only modest.
+So far, we mainly evaluated models through final class labels such as
+`Delayed` and `On_time`. That is useful for operational interpretation,
+because in practice the airline ultimately needs a yes-or-no decision.
+However, this approach fixes one classification threshold at the outset.
+ROC curves and the AUC show how well a model ranks flights from lower to
+higher delay risk across many possible thresholds. We only include this
+analysis for models that return usable class probabilities. The
+cost-sensitive C5.0 model was designed to change the classification
+decision under asymmetric costs, so we do not treat its output as an
+ordinary probability ranking for ROC/AUC purposes. For that reason, this
+section focuses on the plain C5.0 tree and the random forest.
 
-The cost-sensitive tree is left out of this section on purpose. That is
-not because it is unimportant, but because its output is calibrated to a
-cost rule rather than to a neutral probability scale. For that model,
-the confusion matrix, recall and precision are the more appropriate
-evaluation tools.
+The ROC plot shows a clear difference between the two models. The
+`C5.0 tree` lies exactly on the diagonal, which means that it cannot
+rank flights better than chance. This matches the earlier results, where
+the tree behaved like a majority-class classifier and failed to identify
+delayed flights. The `Random forest` curve lies above the diagonal, so
+it does contain at least some ability to rank higher-risk flights above
+lower-risk flights. The AUC table summarizes this in one number. The
+`C5.0 tree` has an AUC of 0.500, which is exactly chance level. The
+`Random forest` reaches an AUC of 0.623, which is a little better. This
+means that the random forest does contain some useful ranking signal,
+even though its classification performance at the default threshold
+remained weak.
+
+The ROC and AUC show whether a model is at least ordering flights
+sensibly by risk before a threshold is chosen. From that perspective,
+the random forest again performs better than the plain tree, but still
+not well enough to be regarded as a final solution.
 
 ## 7.11 Model disagreement and simple voting
 
-If models disagree on the same flights, that is useful information. It
-usually means those flights are harder to classify. We therefore first
-look at how often the main models agree, and then test one simple hard
-voting ensemble.
+If models disagree on the same flights, that can be useful information.
+In general, disagreement may indicate that some flights are harder to
+classify than others in our case the result will be very predictable.
+The three models do not contribute equally: both the plain C5.0 tree and
+the cost-sensitive C5.0 tree predict only the majority class, while the
+random forest is the only model that sometimes predicts delays. This
+means that a hard-voting ensemble is structurally tilted toward
+`On_time` from the start.
 
 ```{r model_disagreement}
-# We first put the three main model predictions next to each other to
-# see how often they make the same call on the same flight.
+# put the three main model predictions next to each other
 pred_patterns <- data.frame(
-  tree = pred_test,
+  tree = pred_tree_test,
   cost_sensitive = pred_cost,
   rf = pred_rf
 )
 
-# This summary tells us how much agreement there is between the models.
+# check how often all three models agree
+all_agree <- pred_patterns$tree == pred_patterns$cost_sensitive &
+  pred_patterns$cost_sensitive == pred_patterns$rf
+
 agreement_summary <- data.frame(
   outcome = c("All three agree", "At least one model disagrees"),
-  share = c(
-    mean(pred_patterns$tree == pred_patterns$cost_sensitive &
-           pred_patterns$cost_sensitive == pred_patterns$rf),
-    mean(!(pred_patterns$tree == pred_patterns$cost_sensitive &
-             pred_patterns$cost_sensitive == pred_patterns$rf))
-  )
+  share = c(mean(all_agree), mean(!all_agree))
 )
 
 ggplot(agreement_summary, aes(x = outcome, y = share)) +
-  geom_col() +
-  scale_y_continuous(labels = pct_label, limits = c(0, 1)) +
-  labs(title = "How often do the main models agree?",
-       x = "", y = "Share of testing flights")
+  geom_col(fill = "grey") +
+  scale_y_continuous(labels = scales::percent_format(), limits = c(0, 1)) +
+  labs(
+    title = "How often do the main models agree?",
+    x = "",
+    y = "Share of testing flights"
+  )
 
-# Then we create the simple voting ensemble and compare it with the
-# individual models in the same metric table.
+# hard-vote ensemble
 pred_ensemble <- hard_vote(pred_patterns)
 ensemble_metrics <- metric_summary(testing$IS_DELAYED_15, pred_ensemble)
 
 ensemble_metrics
+```
 
+The agreement plot shows that the three models give the same prediction
+for 96.63% of the testing flights, while at least one model disagrees
+for only 3.37%. However, this should not be interpreted too broadly as a
+general uncertainty signal. In this case, the disagreement has a very
+specific structure: the plain tree and the cost-sensitive tree always
+predict `On_time`, so disagreement occurs only when the random forest
+predicts `Delayed`.\
+\
+This has a direct consequence for the hard-vote ensemble. Because two of
+the three component models always vote `On_time`, the ensemble itself
+also predicts `On_time` for every flight. Its performance is therefore
+exactly the same as that of the earlier C5.0 models: an accuracy of
+0.8079, a delayed-class recall of 0 and no defined precision or F1-score
+for delayed flights.
+
+```{r comparison_with_ensemble}
 comparison_with_ensemble <- rbind(
   comparison_table,
   data.frame(
@@ -2951,41 +3033,17 @@ comparison_with_ensemble <- rbind(
 comparison_with_ensemble
 ```
 
-We keep the ensemble very simple on purpose. Hard voting is easy to
-explain: each model gets one vote and the majority decides. That makes
-it a good workbook-level ensemble.
-
-The agreement plot should be read as an uncertainty signal. If the
-models disagree often, that means many flights are borderline cases and
-there is not one obvious answer. The ensemble then becomes interesting
-because it may smooth out some of that disagreement, even if it does not
-become the single best model on every metric. So the next step follows
-logically: once we see disagreement between models, it makes sense to
-check whether a simple voting rule gives a more stable compromise.
-
-We do not add weighted voting, stacking or another optimized ensemble
-layer here. Those methods would add extra tuning and make it harder to
-see whether any improvement comes from the ensemble idea itself or from
-extra optimization. We also do not use soft voting, because then we
-would need to treat the probabilities from different models as directly
-comparable, which is a stronger assumption than we need here.
-
-So the point of this section is not to build the most advanced ensemble.
-It is just to check whether a very simple combination changes the
-stability or the error balance in a useful way.
-
-```{r conclusion_helpers, include=FALSE}
-# These helper values let the written conclusion refer automatically to
-# the current best-performing models in the notebook output.
-best_recall_idx <- which.max(comparison_with_ensemble$recall_delayed)[1]
-best_auc_idx <- which.max(auc_table$auc)[1]
-
-best_recall_model <- comparison_with_ensemble$model[best_recall_idx]
-best_recall_value <- comparison_with_ensemble$recall_delayed[best_recall_idx]
-best_precision_value <- comparison_with_ensemble$precision_delayed[best_recall_idx]
-best_auc_model <- auc_table$model[best_auc_idx]
-best_auc_value <- auc_table$auc[best_auc_idx]
-```
+The simple hard-voting rule does not improve delayed-flight detection at
+all. In fact, it suppresses the only model that occasionally flags
+delays for the random forest. So in the present setup, hard voting does
+not create a useful compromise; it simply reproduces majority-class
+behaviour. It shows that this particular ensemble is poorly matched to
+the models being combined. When two component models are highly
+conservative and almost identical in behaviour, an unweighted majority
+vote will simply preserve that conservatism. The random forest remains
+the only model that moves beyond trivial majority-class prediction,
+while the simpler C5.0 variants remain ineffective for the delayed
+class.
 
 # 8. Conclusions and recommendations
 
