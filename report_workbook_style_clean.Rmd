@@ -3037,9 +3037,9 @@ The simple hard-voting rule does not improve delayed-flight detection at
 all. In fact, it suppresses the only model that occasionally flags
 delays for the random forest. So in the present setup, hard voting does
 not create a useful compromise; it simply reproduces majority-class
-behaviour. It shows that this particular ensemble is poorly matched to
+behavior. It shows that this particular ensemble is poorly matched to
 the models being combined. When two component models are highly
-conservative and almost identical in behaviour, an unweighted majority
+conservative and almost identical in behavior, an unweighted majority
 vote will simply preserve that conservatism. The random forest remains
 the only model that moves beyond trivial majority-class prediction,
 while the simpler C5.0 variants remain ineffective for the delayed
@@ -3047,75 +3047,195 @@ class.
 
 # 8. Conclusions and recommendations
 
-## 8.1 Operational recommendations
+This project examined whether flight delays can be predicted before
+departure using variables that are operationally available in advance.
+Across the full pipeline one main conclusion emerges: the data does
+contain useful structure, but that structure is not strong enough to
+produce a reliable classifier for delayed flights with the current
+feature set. The problem is therefore substantially harder than overall
+accuracy alone would suggest.
 
-Our main question was whether we can estimate before departure if a
-scheduled flight is likely to be delayed by 15 minutes or more. Based on
-this notebook, the answer is yes, but mainly as a risk signal and not as
-a perfect prediction.
+The exploratory analysis already pointed in this direction. Timing and
+route-related variables consistently carried most of the usable
+structure in the data. In both the PCA and clustering steps, scheduled
+timing, distance, and scheduled elapsed time emerged as the main
+dimensions along which flights differed. This means the representation
+choices were meaningful: the later models were learning from variables
+that reflect real operational differences between flights, rather than
+from arbitrary coding effects. At the same time, the unsupervised
+analysis also showed that the structure was not cleanly separable.
+Flights did not fall into a few sharply distinct groups, and the feature
+space remained spread over multiple dimensions. That already suggested
+that prediction would be challenging.
 
-The data exploration already showed that delay risk is not random. It
-changes by month, planned departure time, airline, airport and route.
-That means there is enough structure in the pre-departure data to make
-useful distinctions between lower-risk and higher-risk flights.
+The supervised modelling results confirm this. The plain C5.0 tree, the
+boosted C5.0 tree, the cost-sensitive C5.0 tree, and the simple
+hard-vote ensemble all behaved in essentially the same way: they
+defaulted to the majority class and predicted every flight as `On_time`.
+As a result, each of these models achieved an accuracy of 0.8079, but a
+delayed-class recall of 0. In other words, they looked acceptable on
+overall accuracy only because most flights are on time, while completely
+failing on the class that matters for the decision problem.
 
-The modelling results support that conclusion. Different models do not
-behave exactly the same, but they all show that delayed flights can be
-identified better than chance. In our current results, the highest
-recall is reached by `r best_recall_model`, with a recall of
-`r round(100 * best_recall_value, 1)`%. That matters most for our case,
-because missing a real delay is more costly than raising a false alarm.
-At the same time, the precision of that model is
-`r round(100 * best_precision_value, 1)`%, so this should still be seen
-as an early warning tool and not as an automatic decision system.
+The random forest performed best among the tested models because it was
+the only model that moved beyond trivial majority-class prediction. On
+the main test split, it reached an accuracy of 0.7975, a delayed-class
+recall of 0.0606, a precision of 0.3458, and an F1-score of 0.1032. This
+is still weak, but it shows that the pre-departure variables do contain
+at least some predictive signal. The random forest variable-importance
+results also fit the earlier exploratory findings: scheduled departure
+hour, distance, and scheduled elapsed time were the most influential
+predictors, while month, weekday, and carrier contributed much less.
 
-The ROC/AUC results point in the same direction. The best ranking
-performance in our current test results comes from `r best_auc_model`
-with an AUC of `r round(best_auc_value, 3)`. This means the model is not
-just making one fixed yes/no decision, but is also reasonably able to
-put higher-risk flights above lower-risk flights.
+The repeated-split evaluation strengthens rather than changes this
+conclusion. Across repeated train-test splits, the tree-based C5.0
+variants remained perfectly stable, but only because they kept
+reproducing the same trivial majority-class result. The random forest
+again remained the strongest model, with average performance across
+repeated splits of approximately 0.7994 for accuracy, 0.0473 for
+delayed-class recall, 0.3396 for delayed-class precision, and 0.0830 for
+delayed-class F1. So the random forest is consistently better than the
+simpler tree models, but its performance is still too limited for strong
+operational use.
 
-So the practical answer to the business question is: with the variables
-we know before departure, we can already build a useful delay risk
-indicator. That indicator is good enough to help operations teams decide
-where to pay extra attention, prepare standby capacity or communicate
-earlier with passengers. It is not good enough to replace human
-judgment, but it is useful as decision support.
+The ROC and AUC results lead to the same overall interpretation. The
+C5.0 tree had an AUC of 0.500, which is exactly chance level. The random
+forest reached an AUC of 0.623, which shows that it contains some
+ranking ability even though its classification performance at the chosen
+threshold remained weak. This is useful because it means the random
+forest is not entirely uninformative; rather, it captures only a modest
+amount of ranking signal.
 
-## 8.2 Limitations & next steps
+This leads to an important business conclusion. The current models are
+not strong enough to support full automation of pre-departure
+intervention decisions. In particular, the recall for delayed flights is
+too low, which means that too many real delays would still be missed. So
+the main value of this analysis is not that it produced a
+deployment-ready prediction system, but that it clarified where useful
+signal exists, where it remains too weak, and which variables matter
+most. In that sense, the project succeeds analytically even though the
+predictive performance remains limited.
 
-This notebook still has clear limits. We only use historical operational
-variables and a first set of engineered features. Weather, network
-effects, inbound aircraft information and congestion measures could be
-good next steps.
+### Practical recommendations
 
-## 8.3 Assignment check
+Based on the current results, we would **not** recommend using the
+tested models as a stand-alone system to automatically decide which
+flights should trigger strong operational intervention. The
+delayed-class recall is too low for that purpose.
 
-To make it easier to check the assignment, we summarize the main parts
-that are already covered in the workbook:
+A more realistic recommendation is to use the current modelling output
+as a weak prioritization signal rather than as a hard decision rule. In
+practice, this means the airline could use the model to support
+light-touch pre-departure monitoring. Flights flagged as relatively
+higher risk could be sent to an operations watchlist for additional
+human review, rather than automatically triggering expensive
+interventions such as extra crew allocation or major gate changes. This
+is a more defensible use case because it treats the model as an input
+into decision-making, not as a replacement for operational judgment.
 
--   Business context, analytics task and success criteria are stated
-    explicitly.
+A second recommendation is to improve the data before trying to improve
+the models further. The current feature set is limited to structured
+pre-departure variables such as distance, schedule information, carrier,
+and airport identifiers. That is appropriate for a fair predictive
+setup, but it also means that the models do not observe many of the
+mechanisms that actually generate delays. For practical improvement,
+richer data are likely to matter more than simply trying more algorithms
+on the same inputs.
 
--   Data exploration is documented with interpretation rather than plots
-    only.
+The most useful additional data would probably include upstream aircraft
+rotation information, inbound aircraft delay, weather conditions,
+airport congestion indicators, runway or air traffic control pressure,
+maintenance-related signals, and possibly crew or turnaround
+information. These variables are much closer to the operational
+processes that actually create delay risk. Without that kind of
+information, the models mainly learn broad structural patterns rather
+than the most important disruption drivers.
 
--   Data preparation choices are motivated, including missing values,
-    datatype fixes and derived variables.
+### Limitations of the current approach
 
--   PCA and clustering are only used after variable screening and only
-    on a clear pre-departure feature space.
+This project has several limitations that should be acknowledged
+clearly.
 
--   Classification models are evaluated with a train-test split and a
-    confusion matrix, with explicit attention to recall versus
-    precision.
+First, the models were trained on a relatively simple structured feature
+space. That was a deliberate choice to keep the problem aligned with
+pre-departure decision-making and to maintain interpretability, but it
+also limits predictive power.
 
--   Model evaluation goes beyond one split by checking repeated
-    evaluation, ROC/AUC and a simple voting ensemble.
+Second, the target itself is simplified. A binary label such as
+`Delayed` versus `On_time` compresses a more nuanced operational reality
+into one threshold-based outcome. In practice, the consequences of a
+16-minute delay and a 90-minute delay are not the same and different
+delay magnitudes may require different actions.
 
--   Operational recommendations, limitations and next steps are stated
-    separately.
+Third, evaluation remains conditional on design choices. A single
+train-test split does not reveal “the truth,” and model performance
+always depends partly on how the data are partitioned and which metric
+is emphasized. We addressed this partly through repeated splits and by
+looking beyond accuracy to recall, precision, F1 and AUC, but
+uncertainty remains.
 
-So overall, the workbook now covers the main analytical parts that would
-normally be expected. The last important step is still to knit the file
-and check whether the written interpretation matches the final output.
+Fourth, the project does not directly include deployment constraints.
+Even if a model performed somewhat better, real-world implementation
+would still depend on whether predictions can be integrated into
+workflows, whether the input data is timely and reliable, and whether
+operations teams trust and understand the output.
+
+### How more advanced analytics could help
+
+Looking beyond the implemented models, there are several directions that
+could improve the problem in principle, but only if the data and
+decision framing become richer.
+
+A first direction is representation learning. If much richer and more
+detailed operational data were available, more flexible models could
+potentially learn interactions between airport, carrier, schedule,
+disruption, and network effects that the current tree-based models
+cannot capture well. The potential value is greater modelling
+flexibility, but the trade-off would be lower transparency and higher
+demands on validation.
+
+A second direction is text analytics. Useful text sources might include
+maintenance logs, dispatcher notes, incident descriptions, weather
+bulletins, or pilot reports. These could contain early warning
+information that does not appear in structured schedule data. In that
+case, NLP methods could transform text into additional pre-departure
+risk signals. The challenge is that such data are noisy,
+context-dependent, and harder to standardize.
+
+A third direction is to reformulate the problem toward decision support
+rather than pure prediction. Instead of asking only “Will this flight be
+delayed?”, the airline may eventually care more about “Which flights
+should be monitored or acted on first, given limited operational
+capacity?” That is a different task, and one that may be better served
+by ranking, prioritization, or more explicit cost-based decision
+modelling than by a simple binary classifier alone.
+
+### Final recommendation
+
+Overall, our recommendation is to treat the current analysis as a useful
+first predictive screening exercise, not as a deployment-ready delay
+decision system. The immediate next step should not be “use a more
+complex model,” but rather “improve the data and sharpen the decision
+problem.”
+
+More specifically, the most valuable follow-up would be to:
+
+-   add operationally richer pre-departure data, especially upstream and
+    disruption-related signals
+
+-   evaluate models within a clearer decision framework, for example
+    ranking flights for human review instead of forcing direct
+    automation
+
+-   continue using stronger validation designs, so that evaluation is
+    seen as a distribution rather than as one fixed number
+
+-   only consider substantially more advanced methods once the data
+    richness and decision framing justify them
+
+So the final conclusion is not that the problem is unsolvable, but that
+the current structured pre-departure variables are not sufficient for a
+strong operational classifier on their own. The project still succeeds
+analytically because it identifies the main sources of signal, shows
+clearly why some modelling approaches fail, and translates those
+findings into realistic next steps for decision support.
