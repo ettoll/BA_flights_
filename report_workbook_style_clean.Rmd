@@ -3052,7 +3052,7 @@ because in practice the airline ultimately needs a yes-or-no decision.
 However, this approach fixes one classification threshold at the outset.
 ROC curves and the AUC provide a different perspective: they show how
 well a model ranks flights from lower to higher delay risk across many
-possible thresholds.\
+possible threshol]\
 \
 We only include this analysis for models that return usable class
 probabilities. That is an important restriction here. The
