@@ -1,6 +1,7 @@
 ---
 title: 'MOT143A: Business Analytics group 20'
-author: "Nora Donders, Stijn, Brian, Hidde Segers and Lotte Feilzer"
+author: "Nora Donders (5276489), Stijn Duivenvoorden (5188822), Lotte Feilzer (5403367), Brian Joemmankhan (5115698), Hidde Segers (5402948)
+"
 date: "2026-03-04"
 output:
   pdf_document:
@@ -16,6 +17,12 @@ editor_options:
   markdown:
     wrap: 72
 ---
+
+# Report summary 
+
+### Summary 
+
+### AI disclaimer 
 
 # 1. Business context and analytics task
 
@@ -3511,7 +3518,8 @@ More specifically, the most valuable follow-up would be to:
 
 -   evaluate models within a clearer decision framework, for example
     ranking flights for human review instead of forcing direct
-    automation
+    automation; ranking flights can be performed by the random forest
+    confirmed the ROC/AUC graph
 
 -   continue using stronger validation designs, so that evaluation is
     seen as a distribution rather than as one fixed number
