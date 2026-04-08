@@ -41,7 +41,7 @@ The most challenging part of operations is that many decisions need to
 be made before a flight departs. At that point, not all setbacks are
 known, and therefore neither is the final outcome of the departure. If
 an airline were able to identify flights with a high delay risk far
-before departure, an appropiate solution can be thought beforehand.
+before departure, an appropriate solution can be thought of beforehand.
 Preparing standby crew, adjusting gate plans, or increasing customer
 service capacity are examples of operations that the airline could
 impose beforehand so further delays are avoided or reduced. Delays would
@@ -55,7 +55,7 @@ The purpose of this analysis is not to predict the future perfectly. The
 goal is to be able to make a risk signal that aids operations teams with
 the division of focus attention and resources on flights with the
 highest expected delay risk. From an organizational perspective, the
-main users would be operations control centres, network planners, and
+main users would be operations control centers, network planners, and
 day-of-operations managers. In that setting, the model is best seen as a
 decision-support tool rather than an automatic decision-maker.
 
@@ -64,8 +64,9 @@ decision-support tool rather than an automatic decision-maker.
 This analysis takes the perspective of airline operations control and
 airport station management. The aim is to identify higher-risk flights
 early enough to support staffing, gate planning, and earlier passenger
-communication. Because the decision moment is before departure, we only
-want to use information that would realistically be known at that time.
+communication. Because the decision moment is before estimated departure
+time, we only want to use information that would realistically be known
+at that time.
 
 This leads naturally to a predictive risk-scoring task based on
 historical U.S. domestic flight data. Before choosing the final task, we
@@ -90,8 +91,6 @@ considered three possible targets:
 
     This asks how many minutes of arrival delay we should expect.
 
-This asks how many minutes of arrival delay we should expect.
-
 We choose Classification I as the main task. That choice follows from
 the business question: operations teams mainly need an early warning
 about whether a flight is likely to become meaningfully delayed, because
@@ -111,8 +110,8 @@ the binary classification of meaningful arrival delay.
 ## 1.3 Success criteria
 
 We define success from two angles. First, the model should answer the
-analytics question in a useable way. Second, the model should support
-the business problem in practice.
+analytics question in a usable way. Second, the model should support the
+business problem in practice.
 
 From an operational point of view, missing a real delay is usually worse
 than raising a false alarm. If the model says a flight will be on time
@@ -126,7 +125,8 @@ this is less harmful than being unprepared for a real delay.
 For this reason, we focus on high recall for delayed flights. We want
 the model to catch as many real delays as possible, even if that means
 accepting some false alarms. At the same time, we monitor precision to
-make sure we do not allocate too many unnecessary resources.
+make sure we do not allocate too many unnecessary resources, which will
+be elaborated on further in the report.
 
 # 2. Setup
 
@@ -189,9 +189,9 @@ The dataset contains:
 
 -   28 variables
 
-Each observation represents one commercial flight in 2018 in the United
-States of America. The variables represent information about these
-flights. Here, we print a concise summary.
+Each observation represents one domestic commercial flight in 2018 in
+the United States of America. The variables represent information about
+these flights. Here, we print a concise summary.
 
 ```{r summary }
 # print summary 
@@ -273,10 +273,11 @@ rather than producing every possible plot for all 28 columns.
 We now inspect missing values. The point is not only to count `NA`s, but
 also to understand why they occur. In operational data, it is known that
 missingness can be structural rather than accidental. This makes it that
-in the next cleaning steps we should prioritize the reason for the
+in the next cleaning steps we should prioritise the reason for the
 missing value and not just on the amount. We start with counting the
-missing values per column so we can get a good overview of the missing
-values.
+missing values per column so we can get a good overview of the location
+of missing values to give an impression of how many values we are
+dealing with.
 
 ```{r missingness}
 # calculate NA amount and the NA percentage per column
@@ -302,11 +303,11 @@ missing values rather than random data entry errors. Third, the
 delay-cause columns also seem to be jointly missing or jointly present.
 
 That leads to the next check. Before removing anything, we verify
-whether the delay causes columns have structurally missing fields.
-Logical thinking gives the impression that the missingness is because
-these columns only are filled when a substantial realised delay exists.
-If that is true, we should not treat those `NA`s as a data-quality
-problem.
+whether the delay causes columns have structurally missing fields to
+know how to handle the missing values. Logical thinking gives the
+impression that the missingness is because these columns only are filled
+when a substantial realised delay exists. If that is true, we should not
+treat those `NA`s as a data-quality problem.
 
 ```{r delay-na-same}
 # check delay-cause missingness 
@@ -326,9 +327,9 @@ cat("More than 15 min delay but cause is NA value:", sum(delay15 & !cause_presen
 
 As you can see in the summary above, all delay-cause variables with
 missing values occur in the same row and there are no cases where causes
-are present without a 15 minute delay, nor cases where a delay exceeds
-15 minutes while the cause is missing. This indicates no structural data
-quality problem regarding the data quality.
+are present without a 15 minute delay nor cases where a delay exceeds 15
+minutes while the cause is missing. This indicates no structural data
+quality problem.
 
 Next we check whether a delayed flight can have multiple recorded delay
 causes. This is useful context for interpretation later on, because it
@@ -411,8 +412,8 @@ arr_delay_is_zero_case <- !is.na(missing_delay_rows$CRS_ARR_TIME) & !is.na(missi
                  !missing_delay_rows$CRS_ARR_TIME == missing_delay_rows$ARR_TIME
 
 # print conclusion
-cat("DEP_DELAY is a NA value but CRS_DEP_TIME is not equal to DEP_TIME:", sum(dep_delay_is_zero_case), "\n")
-cat("ARR_DELAY is a NA value but CRS_ARR_TIME is not equal to ARR_TIME:", sum(arr_delay_is_zero_case))
+cat("DEP_DELAY is an NA value but CRS_DEP_TIME is not equal to DEP_TIME:", sum(dep_delay_is_zero_case), "\n")
+cat("ARR_DELAY is an NA value but CRS_ARR_TIME is not equal to ARR_TIME:", sum(arr_delay_is_zero_case))
 ```
 
 This supports our assumptions that missing delay values occur when
@@ -420,9 +421,9 @@ scheduled and actual times are equal, and can thus be interpreted as
 zero minutes.
 
 At this point, we have explained the main missing value patterns. We can
-conclude that all the data quality of this dataset is actually really
-high. We can move on to cleaning with a clearer understanding and
-knowing that the data is complete.
+conclude that the data quality of this dataset is actually really high.
+We can move on to cleaning with a clearer understanding and knowing that
+the data is complete.
 
 We shall not delete rows with missing values, because in the data the
 missingness seems to be informative. We first distinguish between:
@@ -449,12 +450,12 @@ be changed for convenience.
 Firstly, `FL_DATE` is stored as date string, so we will later convert it
 to a datetime variable to handle and plot the dates more easily. Several
 scheduled and actual time variables are stored as integers in `HHMM`
-format as shown in the table in 3.2 rather than as usable time values,
-which makes direct time calculations easier. Variables such as
-`TAXI_OUT` and `DEP_DELAY` are already stored as numeric minutes, which
-are suitable for analysis. We also see that `CANCELLED` and `DIVERTED`
-use bineary `0` and `1` coding rather than logical `TRUE` and `FALSE`,
-which is fine as long as we handle it consistently and keep track of the
+format, as shown in the table in 3.2, rather than usable time values.
+This makes direct time calculations easier. Variables such as `TAXI_OUT`
+and `DEP_DELAY` are already stored as numeric minutes, which are
+suitable for analysis. We also see that `CANCELLED` and `DIVERTED` use
+binary `0` and `1` coding rather than logical `TRUE` and `FALSE`, which
+is fine as long as we handle it consistently and keep track of the
 meaning. These observations will directly motivate the next steps.
 
 We create a separate `flights_clean` object so the raw import remains
@@ -553,9 +554,10 @@ Now the needed datatype fixes are implemented and the repairable missing
 values are handled. We still need to remove cancelled and diverted
 flights because the main task is to compare completed flights on
 meaningful arrival delay as our problem statement stated in the
-beginning. The flights that are diverted and cancelled are not needed in
-our scope and cause `NA` values in the data that corrupt our data
-quality.
+beginning. The flights that are diverted and cancelled do not fall
+within our scope. We observe that a lot of `NA` values in the data are
+caused by these types of flights, likely because of uncertainty of chaos
+that the operational managers experience during occurence.
 
 ```{r filter_cancelled_diverted}
 # delete diverted and cancelled flights to get completed-flight
@@ -636,13 +638,10 @@ whereas a smaller number of severe delays pull the average upward.
 `DISTANCE` and `CRS_ELAPSED_TIME` also have means above their medians,
 which suggests some positive skewness there as well.
 
-The large standard deviations and extreme maximum values confirm
-substantial spread and the presence of outliers. For the cleaned data,
-no invalid values remain for `DISTANCE` or `CRS_ELAPSED_TIME`. However,
-extreme delay values are still present: 61 observations for `DEP_DELAY`
-and 66 observations for `ARR_DELAY` exceed 1440 minutes in absolute
-value. These observations are rare and may still be valid, so they are
-flagged for inspection rather than removed automatically.
+The table below screens the dataset for less likely values. The
+thresholds for the analysis of these extreme values are completely
+arbitrary and are chosen to just give insight in what kind of extreme
+values we are dealing with.
 
 ```{r clean_numeric_values}
 # flag impossible values
@@ -676,13 +675,25 @@ flights_clean$DISTANCE[flights_clean$flag_distance_invalid] <- NA
 flights_clean$CRS_ELAPSED_TIME[flights_clean$flag_crs_elapsed_invalid] <- NA
 ```
 
+The large standard deviations and extreme maximum values confirm
+substantial spread and the presence of outliers. For the cleaned data,
+no invalid values remain for `DISTANCE` or `CRS_ELAPSED_TIME`. However,
+extreme delay values are still present: 61 observations for `DEP_DELAY`
+and 66 observations for `ARR_DELAY` exceed 1440 minutes in absolute
+value. The table shows that extreme value observations are rare, but
+their values are not impossible. It is also good to mention that the
+analysis focuses on a classification problem in which the extreme values
+are labeled with a target of 0 or 1 and do not influence the models
+trained. The extreme values are therefore chosen to be kept in the
+dataset.
+
 Overall, the cleaned data appears to be plausible and largely free of
 impossible numeric values, while a small number of extreme but
 potentially valid delay observations remain.
 
 ## 4.5 Exploration and preparation decisions
 
-The exploration of data that was conducted until now should lead to
+The exploration of data that was conducted until now, should lead to
 explicit preparation choices. We here summarize the main findings in a
 short table.
 
@@ -717,8 +728,9 @@ duplicates need to be checked before we move on to the modelling part.
 Data integration is not relevant yet because we currently work with one
 main flight file. Likewise, we do not apply global standardisation at
 this stage because our planned models are tree-based and therefore do
-not require all predictors to be on the same scale. Where scaling does
-matter, such as in PCA, we apply it at that stage in specific.
+not require all predictors to be on the same scale. Trees use thresholds
+per varaiable and do not perform distance calculations. Where scaling
+does matter, such as in PCA, we apply it at that stage in specific.
 
 # 5. Exploratory visualisation
 
@@ -735,8 +747,11 @@ delay_rate
 
 This shows that about 19% of the flights are delayed by 15 minutes or
 more, providing a baseline to which we can compare all subgroup
-patterns. We first show a simple bar chart with delayed versus on-time
-flights. This gives a direct visual check of the class balance.
+patterns. It, therefore, is good to keep in mind for later modelling
+that performance metrics, such as recall and precision, are required
+since a model that always predicts no delay will get 81% accuracy. We
+first show a simple bar chart with delayed versus on-time flights. This
+gives a direct visual check of the class balance.
 
 ```{r class_distribution_plot}
 # target into class labels bar plot
@@ -779,7 +794,7 @@ As we can see a few conclusions can be made from these plots. The plots
 confirm that both `DISTANCE` and `ARR_DELAY` are strongly right-skewed.
 For `DISTANCE`, most observations are concentrated among shorter and
 medium distance flights, while a smaller number of long distance flights
-that create a long right tail. The boxplot shows theese many
+that create a long right tail. The boxplot shows these many
 high-distance observations as outliers, but these appear to be plausible
 values rather than data errors.
 
@@ -804,7 +819,7 @@ boxplot(SCHED_DEP_HOUR ~ IS_DELAYED,
         data = flights_clean,
         outline = FALSE,
         names = c("On time", "Delayed"),
-        main = "Scheduled departure hour by delay status",
+        main = "Scheduled departure hour \n by delay status",
         ylab = "Scheduled departure hour",
         col = c("grey", "red"))
 
@@ -812,7 +827,7 @@ boxplot(CRS_ELAPSED_TIME ~ IS_DELAYED,
         data = flights_clean,
         outline = FALSE,
         names = c("On time", "Delayed"),
-        main = "Scheduled elapsed time by delay status",
+        main = "Scheduled elapsed time \n by delay status",
         ylab = "Scheduled elapsed time (min)",
         col = c("grey", "red"))
 par(mfrow = c(1, 1))
@@ -907,13 +922,13 @@ ggplot(df_wday_rate, aes(x = WEEKDAY, y = delay_rate)) +
 Now we plot a heat map to get some more information on top of the
 weekday bar chart alone because it shows the joint pattern of weekday
 and departure hour. It shows delay risk build up during the day rather
-than averaging that pattern away in the weekday graph. The darker cells
-later in the day suggest that flights scheduled in the afternoon and
-evening are more likely to be delayed, which is consistent with delays
-causing more delay later in the day. Overall this plot shows that
-departure time carries stronger predictive signal than weekday on its
-own, while the combination of both variables may still add useful
-information to later models.
+than averaging that the time pattern away in the weekday graph. The
+darker cells later in the day suggest that flights scheduled in the
+afternoon and evening are more often delayed, which aligns with the idea
+that delays tend to compound and lead to further delays as the day
+progresses. Overall this plot shows that departure time carries stronger
+predictive signal than weekday on its own, while the combination of both
+variables may still add useful information to later models.
 
 ```{r weekday_hour_heatmap}
 # weekday and departure hour joint pattern
@@ -921,7 +936,9 @@ df_hw <- flights_clean[, c("WEEKDAY", "SCHED_DEP_HOUR", "IS_DELAYED")]
 df_hw$DEP_HOUR_BIN <- floor(df_hw$SCHED_DEP_HOUR)
 df_hw <- aggregate(IS_DELAYED ~ WEEKDAY + DEP_HOUR_BIN, df_hw, mean)
 names(df_hw)[3] <- "delay_rate"
-df_hw$WEEKDAY <- factor(df_hw$WEEKDAY, levels = weekday_levels)
+
+# monday above
+df_hw$WEEKDAY <- factor(df_hw$WEEKDAY, levels = rev(weekday_levels))
 
 ggplot(df_hw, aes(x = DEP_HOUR_BIN, y = WEEKDAY, fill = delay_rate)) +
   geom_tile(color = "white") +
@@ -929,7 +946,6 @@ ggplot(df_hw, aes(x = DEP_HOUR_BIN, y = WEEKDAY, fill = delay_rate)) +
   scale_fill_gradient(low = "white", high = "blue", labels = pct_label, limits = c(0, 0.4)) +
   labs(title = "Delay rate by weekday and departure hour",
        x = "Planned departure hour", y = "Day of the week", fill = "Delay rate")
-
 ```
 
 So far, the results suggest that delay risk changes over the day. The
@@ -975,13 +991,14 @@ ggplot(top_carriers, aes(x = reorder(OP_CARRIER, delay_rate), y = delay_rate)) +
 The plot above shows clear differences in delay rates across airlines,
 with some carriers having much higher delay rates than others. Before
 ranking airlines and airports, we apply a minimum volume filter. This
-makes sure that very small groups do not appear at the top or bottom of
-the ranking just because they contain only a few flights. We are
-interested in stable patterns rather than random extremes. We assume
-that groups with at least 50000 flights provide a more reliable picture
-than very small groups. The cutoff is chosen for stability and
-interpretability, not because this amount represents a universal
-threshold. This is completely arbitrary.
+makes sure that carriers with a relative small amount of flights do not
+appear at the top or bottom of the ranking just because they contain
+only a few flights. We are interested in stable patterns rather than
+random extremes. We assume that carriers with at least 50000 flights
+provide a more reliable picture than carriers that perform a low amount
+of flights. The cutoff is chosen for stability and interpretability, not
+because this amount represents a universal threshold. This is completely
+arbitrary.
 
 In addition to airline differences, delay risk may also depend on the
 difference in airport. We therefore plot delay rates by origin airports.
@@ -1022,7 +1039,9 @@ exposure and scheduling patterns. The figure therefore shows that
 
 However, delay rates alone do not show whether busier airports behave
 different. We therefore want to compare airport volume and delay rate
-directly.
+directly. We give labels to flights that have a higher than average
+delay rate or are in the the top 10% of volume of flights in the
+dataset.
 
 ```{r origin_volume_vs_delay_final}
 library(ggrepel)
@@ -1147,7 +1166,8 @@ too unstable to read. That choice is meant to make the plot more
 reliable, not to change the underlying pattern.
 
 Finally we move from individual variables to route patterns, where both
-origin and destination are considered together.
+origin and destination are considered together. We print the
+origin-destination couples that have the highest delay rates.
 
 ```{r route_risk_summary}
 # route level high-volume combinations
@@ -1160,7 +1180,7 @@ route_summary <- merge(route_summary, route_n, by = c("ORIGIN", "DEST"))
 route_summary <- subset(route_summary, n >= 3000)
 route_summary <- route_summary[order(-route_summary$delay_rate), ]
 
-head(route_summary, 10)
+head(route_summary, 20)
 ```
 
 This route table adds insight by showing whether high delay rates are
@@ -1206,22 +1226,22 @@ would not contain meaningful pre-departure differences.
 | Variable | Decision | Treatment | Reason |
 |------------------|------------------|------------------|-------------------|
 | `DISTANCE` | Keep | Standardize | Numeric pre-departure variable; potentially informative for route structure |
-| `CRS_E LAPSED_TIME` | Keep | Standardize | Planned flight duration, pre-departure and useful as a compact route characteristic |
-| `SCH ED_DEP_HOUR` | T ransform | Standardize | Seems better interpretable than raw scheduled departure time from exploratory analysis |
-| `MONTH` | T ransform | Convert to cyclical sine and cosine features and standardize | Month 12 is adjacent to month 1, so simple linear coding would be inappropriate |
-| `WEEKDAY` | T ransform | Represent as a weekend dummy | Low-dimensional representation for exploratory PCA/clustering |
+| `CRS_ELAPSED_TIME` | Keep | Standardize | Planned flight duration, pre-departure and useful as a compact route characteristic |
+| `SCHED_DEP_HOUR` | Transform | Standardize | Seems better interpretable than raw scheduled departure time from exploratory analysis |
+| `MONTH` | Transform | Convert to cyclical sine and cosine features and standardize | Month 12 is adjacent to month 1, so simple linear coding would be inappropriate |
+| `WEEKDAY` | Transform | Represent as a weekend dummy | Low-dimensional representation for exploratory PCA/clustering |
 | `FL_DATE` | Exclude | \- | A full calendar date is too specific for PCA or clustering |
 | `OP_CARRIER` | Exclude | \- | Highly diverse label; useful for supervised models, but less suitable for a compact and interpretable PCA and/or clustering feature set |
-| `OP_CAR RIER_FL_NUM` | Exclude | \- | Flight number is an identifier rather than a meaningful numeric feature |
+| `OP_CARRIER_FL_NUM` | Exclude | \- | Flight number is an identifier rather than a meaningful numeric feature |
 | `ORIGIN` `DEST` | Exclude | \- | Airport code is a categorical label and thus not suitable for PCA and/or clustering |
-| `C RS_DEP_TIME` `C RS_ARR_TIME` | Exclude | Replace by `SCHE D_DEP_HOUR` and `SCHE D_ARR_HOUR` | Raw timestamp is not ideal for PCA. If arrival timing is used, a simplified hour feature is preferable |
-| `SCH ED_ARR_HOUR` | Exclude | \- | Redundant with scheduled departure hour and planned elapsed time, excluding keeps the feature set more compact |
+| `CRS_DEP_TIME` `CRS_ARR_TIME` | Exclude | Replace by `SCHED_DEP_HOUR` and `SCHED_ARR_HOUR` | Raw timestamp is not ideal for PCA. If arrival timing is used, a simplified hour feature is preferable |
+| `SCHED_ARR_HOUR` | Exclude | \- | Redundant with scheduled departure hour and planned elapsed time, excluding keeps the feature set more compact |
 | `DEP_DELAY` `ARR_DELAY` `ARR_TIME` `DEP_TIME` | Exclude | \- | Not known before departure and including it would introduce data leakage |
 | `IS_DELAYED` | Exclude | \- | Is the target variable |
 | `TAXI_OUT` `WHEELS_OFF` `WHEELS_ON` `TAXI_IN` | Exclude | \- | Observed after departure |
-| ``` ACTUAL _ELAPSED_TIM E``AIR_TIME ``` | Exclude | \- | Not valid in a pre-departure setting |
-| `SEC URITY_DELAY` `LATE_AI RCRAFT_DELAY NAS_DELAY WE ATHER_DELAY` `CA RRIER_DELAY` | Exclude | \- | Post-event delay attribution, not known before departure |
-| `CANCELLED` ``` DIVE RTED``CANCEL LATION_CODE ``` | Exclude | \- | Not in completed flight sample and therefore not used as a feature |
+| `ACTUAL_ELAPSED_TIME AIR_TIME` | Exclude | \- | Not valid in a pre-departure setting |
+| `SECURITY_DELAY` `LATE_AIRCRAFT_DELAY NAS_DELAY WEATHER_DELAY` `CARRIER_DELAY` | Exclude | \- | Post-event delay attribution, not known before departure |
+| `CANCELLED` `DIVERTED CANCELLATION_CODE` | Exclude | \- | Not in completed flight sample and therefore not used as a feature |
 
 For PCA and clustering we need to only keep variables that are available
 before departure and that can be represented in a compact numeric form.
@@ -1238,7 +1258,8 @@ representations so that values at the boundaries remain close together.
 Raw clock times do not work well as simple numeric inputs. The numeric
 inputs in HHMM format are also not a good representation of time that is
 why it is converted. We also simplify `WEEKDAY` to a weekend indicator
-in order to keep the feature space compact.
+in order to keep the feature space compact, in which 1 represents a
+weekday and 0 a weekend day.
 
 ```{r pca_cluster_preparation, echo=FALSE}
 flights_structure <- flights_clean
@@ -1260,8 +1281,8 @@ The table below then summarizes what we did for each variable and why.
 | Feature | Preparation | Why |
 |-------------------|-------------------|----------------------------------|
 | `DISTANCE` | Standardize | Already meaningful as a numeric feature and scaling makes it comparable to the other variables |
-| `CRS_EL APSED_TIME` | Standardize | Planned numeric feature and scaling is sufficient, though some overlap with distance is expected |
-| `SCHE D_DEP_HOUR` | Encode cyclically, then standardize | Time of day is circular, so sine/cosine encoding avoids jumps at midnight |
+| `CRS_ELAPSED_TIME` | Standardize | Planned numeric feature and scaling is sufficient, though some overlap with distance is expected |
+| `SCHED_DEP_HOUR` | Encode cyclically, then standardize | Time of day is circular, so sine/cosine encoding avoids jumps at midnight |
 | `MONTH` | Encode cyclically, then standardize | The calendar is circular, so December and January should remain close in feature space |
 | `WEEKDAY` | Convert to weekend dummy | Keeps dimensions low and easy to interpret |
 
@@ -1300,16 +1321,17 @@ dim(flights_structure_analysis)
 apply(flights_structure_analysis_z, 2, sd)
 ```
 
-We use Z-score standardization because both PCA and distance-based
-clustering are sensitive to scale. Without scaling, variables with
-larger numeric ranges would dominate the analysis even if they do not
-contain more information. Standardization places the variables on a more
-comparable footing.
+We use Z-score standardization because both PCA and euclidean
+distance-based clustering, such as k-means, are sensitive to scaling,
+meaning that big values influence the calculations unproportionally.
+Without scaling, variables with larger numeric ranges would dominate the
+analysis even if they do not contain more information. Standardization
+places the variables on a more comparable footing.
 
 The feature representation is kept simple. We do not add extra
 transformations such as log transformations for `DISTANCE` or
 `CRS_ELAPSED_TIME`, because for this exploratory step it is more
-important that the variables remain understandable than that every
+important that the variables remain understandable, than that every
 distribution is made statistically neater.
 
 Thus, first we defined a coherent feature representation and transform
@@ -1605,7 +1627,7 @@ data.frame(
 )
 ```
 
-Overall, we see that t he correlation between `DISTANCE` and
+Overall, we see that the correlation between `DISTANCE` and
 `CRS_ELAPSED_TIME` is very strong, so we do not want both variables to
 weigh too heavily in the clustering step. PCA combines the shared
 variation into the first principal component. The analysis confirms that
@@ -1633,8 +1655,8 @@ distance calculation. The overlap is strong enough to justify a simpler
 representation.
 
 We run k-means on standardized clustering variables because of the scale
-sensitivity. We also work with a random sample, which keeps the
-computation stable while still finding broad patterns.
+sensitivity of the clustering method. We also work with a random sample,
+which keeps the computation stable while still finding broad patterns.
 
 ```{r clustering_input}
 # Final clustering feature set
@@ -1700,7 +1722,9 @@ point of using it is not to find one uniquely correct number of
 clusters, but to assess at what amount of clusters the plot begins to
 flatten out. When that happens we can choose to not add any extra
 clusters because it would cause less extra structure and mainly adds
-complexity.
+complexity. We opted for plotting the elbow plot between `k = 2` and
+`k = 10`, but for clearity of the elbow purposes show `k=2` to `k=6` in
+the plot below to clearly show the sharp break.
 
 ```{r elbow_plot}
 k_grid <- 2:6
@@ -1769,9 +1793,9 @@ ggplot(cluster_sizes, aes(x = cluster, y = n)) +
 ```
 
 The cluster size distribution shows that the solution is fairly stable
-and not driven only by niche and small groups. Cluster 1 is the largest
-with 7,731 flights, followed by clusters 3 and 4 with 5,245 and 4,861
-flights respectively. Cluster 2 is smaller with 2,163 flights, which
+and not driven only by niche and small groups. Cluster 4 is the largest
+with 7,714 flights, followed by clusters 1 and 2 with 5,243 and 4,883
+flights respectively. Cluster 3 is smaller with 2,160 flights, which
 suggests a more specific profile.
 
 Now we look at the cluster centers in the standardized feature space,
@@ -1786,14 +1810,14 @@ cluster_centers
 
 The cluster centers give the impression of some structure existing in
 the data, but it is needed to state that the differences are not
-extreme. Cluster 2 stands out most clearly as a long distance profile,
+extreme. Cluster 3 stands out most clearly as a long distance profile,
 since its standardized `DISTANCE` is much higher than in the other
-clusters. Cluster 4 is characterized most strongly by a higher
+clusters. Cluster 2 is characterized most strongly by a higher
 `IS_WEEKEND`, which makes it a weekend-oriented profile. Clusters 1 and
-3 differ in the cyclical departure-time columns, which suggests that
+4 differ in the cyclical departure-time columns, which suggests that
 they capture different time-of-day patterns. These differences are
 however easier to detect in the transformed feature space than in cyclic
-form. The month features lie close to zero in all cluster centres, this
+form. The month features lie close to zero in all cluster centers, this
 shows that seasonality is probably not a major driver of the differences
 in this analysis.
 
@@ -1829,10 +1853,16 @@ Indicating that the clustering does not show four sharply separated
 groups in the original variables. Instead, it seems to capture weaker
 multivariate differences that are clearer in the transformed feature
 space than in the raw data summaries. For example, the departure-time
-differences between clusters 1 and 3 is easier to see in the
+differences between clusters 1 and 4 is easier to see in the
 standardized cyclical cluster centers than in the raw average of
 `SCHED_DEP_HOUR`. This is actually logical because k-means grouped the
 flights in sine/cosine space rather than on a single linear hour scale.
+
+It can also be observed that the delay percentage for the different
+clusters is all around 19% again, which corresponds to the average delay
+percentage for all flights. From this, it is likely possible to conclude
+that no significant differentiation between clusters can be made to
+predict delays.
 
 Next we inspect some boxplots to add more insights. These show not only
 the average, but also the spread and overlap within each cluster.
@@ -1886,13 +1916,13 @@ better understood as a partition into broader and only partially
 separated profiles. The strongest cluster interpretation therefore comes
 from combining the cluster centers values with the raw data summaries:
 
--   **Cluster 2** is the clearest **longer-distance profile**.
+-   Cluster 3 is the clearest longer-distance profile.
 
--   **Cluster 4** is the clearest **weekend-oriented profile**.
+-   Cluster 2 is the clearest weekend-oriented profile.
 
--   **Clusters 1 and 3** appear to differ somewhat in **time-of-day
-    structure**, but this distinction is more visible in the cyclical
-    feature space than in the raw hour summaries.
+-   Clusters 1 and 4 appear to differ somewhat in time-of-day structure,
+    but this distinction is more visible in the cyclical feature space
+    than in the raw hour summaries.
 
 As an additional descriptive step, we inspect the most common carrier,
 origin, and destination within each cluster. These variables are not
@@ -1949,10 +1979,10 @@ main directions of variation in the data are related to route length,
 time of day and calendar structure. The clustering analysis shows
 similar groups but in weaker and more overlapping way. That is way it is
 important to state that the clustering results should not be
-overinterpreted. The groups are only moderately distinct and some of the
-structure is easier to see in the transformed feature space than in raw
-summaries. They help reveal some flight profiles and show how the PCA
-dimensions combine in a non-linear grouping of flights. For later
+over-interpreted. The groups are only moderately distinct and some of
+the structure is easier to see in the transformed feature space than in
+raw summaries. They help reveal some flight profiles and show how the
+PCA dimensions combine in a non-linear grouping of flights. For later
 modelling, the original engineered variables remain the stronger basis.
 
 # 7. Modelling
@@ -2063,15 +2093,18 @@ model_vars <- c(
 model_df <- flights_model[, model_vars]
 model_df <- na.omit(model_df)
 
-# overview of the modelling data
+cat("Structure of the modelling dataset:\n")
 str(model_df)
 
 # class balance in full modelling table
 class_counts_full <- table(model_df$IS_DELAYED_15)
 class_props_full  <- prop.table(class_counts_full)
 
-class_counts_full
-round(100 * class_props_full, 2)
+cat("\nClass counts in full modelling dataset:\n")
+print(class_counts_full)
+
+cat("\nClass percentages in full modelling dataset:\n")
+print(paste0(round(100 * class_props_full, 2), "%"))
 
 # sample for computational manageability
 set.seed(46748717)
@@ -2080,14 +2113,19 @@ N_MODEL <- min(300000, nrow(model_df))
 idx <- sample(seq_len(nrow(model_df)), N_MODEL)
 
 model_df_small <- model_df[idx, ]
-dim(model_df_small)
+
+cat("\nDimensions of sampled modelling dataset:\n")
+print(dim(model_df_small))
 
 # class balance in sampled modelling data
 class_counts_sample <- table(model_df_small$IS_DELAYED_15)
 class_props_sample  <- prop.table(class_counts_sample)
 
-class_counts_sample
-round(100 * class_props_sample, 2)
+cat("\nClass counts in sampled modelling dataset:\n")
+print(class_counts_sample)
+
+cat("\nClass percentages in sampled modelling dataset:\n")
+print(paste0(round(100 * class_props_sample, 2), "%"))
 
 # train-test split while preserving class proportions
 set.seed(46748717)
@@ -2101,8 +2139,11 @@ split <- rsample::initial_split(
 training <- training(split)
 testing  <- testing(split)
 
-dim(training)
-dim(testing)
+cat("\nDimensions of training set:\n")
+print(dim(training))
+
+cat("\nDimensions of test set:\n")
+print(dim(testing))
 
 # class balance in each split
 class_counts_train <- table(training$IS_DELAYED_15)
@@ -2111,11 +2152,17 @@ class_props_train  <- prop.table(class_counts_train)
 class_counts_test <- table(testing$IS_DELAYED_15)
 class_props_test  <- prop.table(class_counts_test)
 
-class_counts_train
-round(100 * class_props_train, 2)
+cat("\nClass counts in training set:\n")
+print(class_counts_train)
 
-class_counts_test
-round(100 * class_props_test, 2)
+cat("\nClass percentages in training set:\n")
+print(paste0(round(100 * class_props_train, 2), "%"))
+
+cat("\nClass counts in test set:\n")
+print(class_counts_test)
+
+cat("\nClass percentages in test set:\n")
+print(paste0(round(100 * class_props_test, 2), "%"))
 ```
 
 In Chapter 5 we found that meaningful delays are common enough to model,
@@ -2146,12 +2193,16 @@ split_compare <- rbind(
   data.frame(split = "Testing",  testing[,  c("IS_DELAYED_15", "DISTANCE", "SCHED_DEP_HOUR")])
 )
 
+# force order: Training first, Testing second
+split_compare$split <- factor(split_compare$split, levels = c("Training", "Testing"))
+
 # class proportions by split
 class_share <- as.data.frame(prop.table(
   table(split_compare$split, split_compare$IS_DELAYED_15),
   margin = 1
 ))
 names(class_share) <- c("split", "IS_DELAYED_15", "share")
+class_share$split <- factor(class_share$split, levels = c("Training", "Testing"))
 
 ggplot(class_share, aes(x = IS_DELAYED_15, y = share, fill = split)) +
   geom_col(position = "dodge") +
@@ -2184,7 +2235,7 @@ ggplot(split_compare, aes(x = SCHED_DEP_HOUR, y = after_stat(density), fill = sp
 Before fitting the models, we compare the training and testing sets to
 check whether they still look similar after the split. This is a useful
 diagnostic, because model comparison is easier to interpret when the
-test data resemble the data on which the models were trained.\
+test data resembles the data on which the models were trained. \
 \
 The first plot shows that the proportion of delayed and on-time flights
 is effectively the same in both sets. This is what we wanted, since it
@@ -2206,10 +2257,10 @@ important predictors retain the same overall shape.\
 To make the later comparison as fair as possible, we also define one
 shared evaluation function that will be used for every model. The
 function reports the same set of measures for every model: accuracy,
-recall, precision and F1 for the delayed class, together with the
-underlying confusion-matrix counts. We do not judge the modelling step
-by one number alone, but by whether it helps identify delayed flights in
-a way that is meaningful for the business problem.\
+recall, precision and F1 for the delayed class (see workbooks), together
+with the underlying confusion-matrix counts. We do not judge the
+modelling step by one number alone, but by whether it helps identify
+delayed flights in a way that is meaningful for the business problem.\
 \
 The second helper function implements a simple hard-voting rule that
 will be used later when we combine model predictions in an ensemble.
@@ -2283,7 +2334,7 @@ exactly the share of delayed flights in the training data. This means
 that the model reduces error simply by following the class imbalance.
 This is an important baseline result. It shows that, under the current
 class distribution and with a plain tree structure, the model does not
-move beyond the majority-class rule. From the business perspective of
+move beyond the majority class rule. From the business perspective of
 this project, that is not sufficient. A model that never flags delayed
 flights is not useful for pre-departure decision support, even if its
 overall error rate appears acceptable at first sight.\
@@ -2313,8 +2364,7 @@ tree predicts only `On_time`, it achieves a test accuracy that is still
 relatively high simply because most flights are on time. At the same
 time, recall for the delayed class is zero, because the model never
 identifies a delayed flight. This is exactly why accuracy alone is not
-enough in this setting. The confusion matrices make this behaviour
-directly visible.
+enough in this setting.
 
 ```{r c50_tree_confusion}
 # confusion matrices on training and testing data
@@ -2490,7 +2540,7 @@ no true positives at all. The resulting accuracy is again 0.8079, which
 is about 80.8%. On its own, that number may look acceptable, but here it
 is misleading. The model reaches this accuracy only because on-time
 flights are the majority class. In practical terms, the boosted tree
-still behaves like a majority-class classifier rather than a useful
+still behaves like a majority class classifier rather than a useful
 delay predictor.\
 \
 This is also reflected in the other evaluation measures. Recall for the
@@ -2506,7 +2556,7 @@ the basic behaviour of the classifier. The model remains too
 conservative and still follows the majority class. So although boosting
 is a logical next step after the plain tree, it does not solve the core
 problem here. This motivates moving further away from simple tree-based
-majority-class behaviour in the next models.
+majority class behaviour in the next models.
 
 ## 7.6 Altering tree behaviour: cost-sensitive classification
 
@@ -2522,7 +2572,7 @@ that changes the behaviour of the tree.
 # cost-sensitive C5.0: make missed delays more expensive than false alarms
 cost_matrix <- matrix(
   c(NA, 1,
-    2,  NA),
+    10,  NA),
   nrow = 2,
   ncol = 2,
   byrow = FALSE
@@ -2563,16 +2613,17 @@ cost_test_metrics
 ```
 
 The confusion matrix shows that the cost-sensitive tree still predicts
-every flight as On_time. So even with a higher penalty on missed delays,
-the model produces no true positives at all. The model still behaves
-like a majority-class classifier rather than a useful delay predictor.
-Cost-sensitive classification is conceptually well aligned with the
-business problem, since it allows us to penalize missed delays more
-heavily than false alarms. However, under the current specification, it
-does not change the basic behaviour of the tree. The classifier remains
-too conservative and still follows the majority class. So although this
-is a logical next step after the plain and boosted trees, it does not
-solve the core problem in our data.
+every flight as `On_time`. We have tried several costs for missed delays
+ranging from 2 to 10, all give the same conclusion. So even with a
+higher penalty on missed delays, the model produces no true positives at
+all. The model still behaves like a majority class classifier rather
+than a useful delay predictor. Cost-sensitive classification is
+conceptually well aligned with the business problem, since it allows us
+to penalize missed delays more heavily than false alarms. However, under
+the current specification, it does not change the basic behaviour of the
+tree. The classifier remains too conservative and still follows the
+majority class. So although this is a logical next step after the plain
+and boosted trees, it does not solve the core problem in our data.
 
 ## 7.7 Model 2: Random Forest
 
@@ -2647,12 +2698,12 @@ flights, while still missing 16,238 delayed flights. It also incorrectly
 flags 1,983 on-time flights as delayed. This gives an accuracy of
 0.7975, a delayed-class recall of 0.0606, a precision of 0.3458, and an
 F1-score of 0.1032. This means that the model no longer behaves as a
-pure majority-class classifier. Unlike the earlier C5.0 variants, the
+pure majority class classifier. Unlike the earlier C5.0 variants, the
 random forest does identify some delayed flights. That is an important
 result, because it suggests that the pre-departure predictors do contain
 at least some useful predictive signal. At the same time, recall remains
 very low. The model still misses the large majority of actual delays, so
-the improvement over the earlier tree models is real but limited.\
+the improvement over the earlier tree models is real, but limited.\
 \
 The confusion matrix makes that trade-off visible. Most flights are
 still predicted as On_time, which keeps the number of false positives
@@ -2662,7 +2713,13 @@ flights with elevated delay risk before departure.
 
 ```{r random_forest_importance}
 importance(model_rf)
-varImpPlot(model_rf, main = "Random forest variable importance")
+
+varImpPlot(
+  model_rf,
+  main = "Random forest variable importance",
+  cex = 0.7,
+  cex.axis = 0.7
+)
 ```
 
 The variable-importance results help explain what the random forest is
@@ -2686,11 +2743,11 @@ plot confirms which variables drive the model, not because it changes
 the overall conclusion that predictive performance remains limited.
 
 Overall, the random forest is a better benchmark than the earlier tree
-variants, because it moves beyond trivial majority-class prediction.
-However, its recall for delayed flights remains low, so it is still not
-strong enough for the business goal. Before comparing all models side by
-side, we therefore consider one more benchmark from a different model
-family: Naive Bayes.
+variants, because it moves beyond trivial majority class prediction.
+This, despite the feature reduction. However, its recall for delayed
+flights remains low, so it is still not strong enough for the business
+goal. Before comparing all models side by side, we therefore consider
+one more benchmark from a different model family: Naive Bayes.
 
 ## 7.8 Model 3: Naive Bayes classifier
 
@@ -2774,27 +2831,26 @@ nb_test_metrics
 ```
 
 In the table we can see the following. On the testing data, the model
-correctly identifies 620 delayed flights, while missing 16,666 delayed
-flights. It also incorrectly flags 994 on-time flights as delayed. This
-gives an accuracy of 0.8038, a delayed-class recall of 0.0359, a
-precision of 0.3841, and an F1-score of 0.0656.
+correctly identifies 101 delayed flights, while missing 17,185 delayed
+flights. It also incorrectly flags 138 on-time flights as delayed. This
+gives an accuracy of 0.8075, a delayed-class recall of 0.0058, a
+precision of 0.4225, and an F1-score of 0.01152.
 
-These results show that Naive Bayes does move beyond trivial
-majority-class prediction. Unlike the normal, boosted and cost-sensitive
-C5.0 trees, it identifies at least some delayed flights. This indicates
-that the pre-departure predictors contain some class information that
-can also be used by a simple probabilistic model.
-
-At the same time, the model remains weak for the delayed class. Recall
-is still very low, which means that most actual delays are still missed.
-Compared with the Random forest, Naive Bayes is more conservative: it
-achieves a slightly higher accuracy and a higher precision, but it
-identifies fewer delayed flights and therefore has a lower recall and
-F1-score. In other words, the model produces fewer false alarms, but at
-the cost of missing even more true delays.
+These results show that Naive Bayes does move beyond trivial majority
+class prediction. Unlike the normal, boosted and cost-sensitive C5.0
+trees, it identifies at least some delayed flights. This indicates that
+the pre-departure predictors contain some class information that can
+also be used by a simple probabilistic model. At the same time, the
+model remains extremely weak for the delayed class. Recall is still very
+low, which means that most actual delays are still missed. Compared with
+the Random forest, Naive Bayes is more conservative: it achieves a
+slightly higher accuracy and a higher precision, but it identifies fewer
+delayed flights and therefore has a lower recall and F1-score. In other
+words, the model produces fewer false alarms, but at the cost of missing
+even more true delays.
 
 This makes Naive Bayes a useful intermediate benchmark. It confirms that
-the data contain some predictive signal beyond majority-class structure,
+the data contain some predictive signal beyond majority class structure,
 but it also reinforces the broader conclusion: with the current feature
 set, even models that move beyond trivial prediction still perform too
 weakly on the delayed class to support strong operational decision
@@ -2857,18 +2913,18 @@ comparison_table
 The comparison table shows a clear pattern. The `C5.0 tree`,
 `Boosted C5.0`, and `Cost-sensitive C5.0` all lead to exactly the same
 practical outcome: an accuracy of 0.8079, but a delayed-class recall of
-0. In other words, all three behave like majority-class classifiers and
+0. In other words, all three behave like majority class classifiers and
 fail to identify any delayed flights at all. Their precision and
 F1-score for the delayed class are therefore not defined, because they
 never predict a single delayed case.
 
-The`Random forest` and `Naive Bayes` both improve on this majority-class
-behavior. The `Random forest` reaches an accuracy of 0.7975, a
+The `Random forest` and `Naive Bayes` both improve on this majority
+class behaviour. The `Random forest` reaches an accuracy of 0.7975, a
 delayed-class recall of 0.0606, a precision of 0.3458, and an F1-score
 of 0.1032. The `Naive Bayes` model is slightly more conservative: it
-achieves a higher accuracy of 0.8038 and a higher precision of 0.3841,
-but its delayed-class recall is lower at 0.0359, with an F1-score of
-0.0656. This means that Naive Bayes produces fewer false alarms, but
+achieves a higher accuracy of 0.8075 and a higher precision of 0.4226,
+but its delayed-class recall is lower at 0.0058, with an F1-score of
+0.0115. This means that Naive Bayes produces fewer false alarms, but
 also misses more actual delays.
 
 So the comparison reveals an important trade-off. The tree-based C5.0
@@ -2886,14 +2942,14 @@ The comparison in the previous section was based on one particular
 train-test split. That gives a useful first answer, but it does not show
 how sensitive the results are to the exact split that happened to be
 drawn. To make this visible, we repeat the same evaluation several times
-on a smaller fixed sample. We focus on three distinct model behaviors: a
-plain C5.0 tree, a cost-sensitive C5.0 tree, the random forest and Naive
-Bayes. In addition, we include a simple hard-vote ensemble based on
-these models. The goal is to examine whether the main conclusions remain
-stable across repeated train-test splits. We repeat the evaluation 8
-times on a subset of 60,000 observations. This is sufficient to make
-instability visible without making the notebook too computationally
-heavy.
+on a smaller fixed sample. We focus on three distinct model behaviours:
+a plain C5.0 tree, a cost-sensitive C5.0 tree, the random forest and
+Naive Bayes. In addition, we include a simple hard-vote ensemble based
+on these models. The goal is to examine whether the main conclusions
+remain stable across repeated train-test splits. We repeat the
+evaluation 8 times on a subset of 60,000 observations. This is
+sufficient to make instability visible without making the notebook too
+computationally heavy.
 
 ```{r repeated_evaluation}
 set.seed(46748717)
@@ -3010,8 +3066,8 @@ repeated_summary
 ```
 
 The boxplots and summary table show a clear and more nuanced pattern.
-The `C5.0 tree` and the`Cost-sensitive C5.0` again show no variation
-across repeated splits trapped in majority-class prediction and achieve
+The `C5.0 tree` and the `Cost-sensitive C5.0` again show no variation
+across repeated splits trapped in majority class prediction and achieve
 a delayed-class recall of 0 in every repeated split. The
 `Hard-vote ensemble` no longer behaves exactly the same as these two
 tree models, but its improvement is extremely small. On average, it
@@ -3025,7 +3081,7 @@ The `Naive Bayes` model performs better than the `Hard-vote ensemble`
 and the C5.0 variants, but it is still limited. Across the repeated
 splits, it reaches an average accuracy of about 0.8071, an average
 delayed-class recall of 0.0077, a precision of 0.3947 and an F1-score of
-0.0152. So it does move beyond trivial majority-class prediction, but
+0.0152. So it does move beyond trivial majority class prediction, but
 only to a small extent. The `Random forest` remains the strongest model
 in the repeated-split analysis. It has the lowest average accuracy at
 about 0.7994, but it also achieves by far the highest delayed-class
@@ -3039,10 +3095,10 @@ Overall, the repeated-split results strengthen the earlier conclusion
 rather than changing it. The simplest tree-based models remain
 ineffective for the delayed class, even when the split is changed.
 `Naive Bayes` and the hard-vote ensemble move only slightly beyond that
-behavior, while the `Random forest` remains the only model that produces
-a clearly non-zero delayed-flight recall on a consistent basis. So the
-main limitation is not one unlucky train-test split, but the underlying
-weakness of the simpler models for this task.
+behaviour, while the `Random forest` remains the only model that
+produces a clearly non-zero delayed-flight recall on a consistent basis.
+So the main limitation is not one unlucky train-test split, but the
+underlying weakness of the simpler models for this task.
 
 ## 7.11 Multiple thresholds
 
@@ -3052,7 +3108,7 @@ because in practice the airline ultimately needs a yes-or-no decision.
 However, this approach fixes one classification threshold at the outset.
 ROC curves and the AUC provide a different perspective: they show how
 well a model ranks flights from lower to higher delay risk across many
-possible threshol]\
+possible threshold. \
 \
 We only include this analysis for models that return usable class
 probabilities. That is an important restriction here. The
@@ -3116,9 +3172,9 @@ auc_table
 The ROC plot shows a clear difference between the three models. The
 `C5.0 tree` lies exactly on the diagonal, which means that it cannot
 rank flights better than chance. This is fully consistent with the
-earlier results, where the tree behaved like a majority-class classifier
-and failed to identify delayed flights. Both the `Random forest`
-and`Naive Bayes` lie above the diagonal, which means that both models
+earlier results, where the tree behaved like a majority class classifier
+and failed to identify delayed flights. Both the `Random forest` and
+`Naive Bayes` lie above the diagonal, which means that both models
 contain at least some ability to rank higher-risk flights above
 lower-risk flights.
 
@@ -3127,7 +3183,7 @@ of 0.500, which is exactly chance level. The`Random forest` reaches an
 AUC of 0.623, while `Naive Bayes` performs slightly better with an AUC
 of 0.626. This adds an important nuance to the earlier results. At the
 chosen classification threshold, the `Random forest` performed better
-than`Naive Bayes` in terms of delayed-class recall and F1, so it
+than `Naive Bayes` in terms of delayed-class recall and F1, so it
 remained the strongest classifier for the main decision problem. But in
 threshold-independent ranking terms, `Naive Bayes` performs at least as
 well as, and here slightly better than, the `Random forest`. In other
@@ -3150,7 +3206,7 @@ classifiers.
 If models disagree on the same flights, that can be useful information.
 In general, disagreement may indicate that some flights are harder to
 classify than others. We therefore compare the predictions of three
-models with clearly different behavior: the plain `C5.0 tree`, the
+models with clearly different behaviour: the plain `C5.0 tree`, the
 `Random forest` and `Naive Bayes`.
 
 This section should still be interpreted carefully. The three models do
@@ -3159,7 +3215,7 @@ conservative and predicts the majority class, while the `Random forest`
 and `Naive Bayes` are the only models that sometimes predict delays.
 That makes disagreement more informative here than in the earlier
 tree-only comparisons, because it reflects actual differences between
-model types rather than only repeated majority-class behavior.
+model types rather than only repeated majority class behaviour.
 
 ```{r model_disagreement}
 # put the three main model predictions next to each other
@@ -3204,13 +3260,13 @@ the same label from all three models, while disagreement occurs for only
 about 3.55% of flights. This means that the models behave similarly most
 of the time, and that only a small subset of flights is treated
 differently. The ensemble results show what this disagreement means in
-practice. The hard-vote model does move slightly beyond majority-class
+practice. The hard-vote model does move slightly beyond majority class
 prediction, but only to a very limited extent. On the testing data, it
 correctly identifies 38 delayed flights and incorrectly flags 39 on-time
 flights as delayed. This gives an accuracy of 0.8079, a delayed-class
 recall of only about 0.0022, a precision of 0.4935 and an F1-score of
 about 0.0044. This pattern is important. The ensemble is no longer
-identical to the majority-class C5.0 models, but it remains far too
+identical to the majority class C5.0 models, but it remains far too
 conservative to be useful for delayed-flight detection. Its relatively
 high precision does not indicate strong performance; it mainly reflects
 the fact that the model predicts `Delayed` only in a very small number
@@ -3234,7 +3290,7 @@ comparison_with_ensemble
 
 The hard-vote rule does not provide a useful compromise between the
 individual models. Although it does move slightly beyond trivial
-majority-class prediction, its delayed-class recall remains extremely
+majority class prediction, its delayed-class recall remains extremely
 low at 0.0022, far below both the`Random forest` (0.0606) and
 `Naive Bayes` (0.0058). Its relatively high precision (0.4935) should
 also be interpreted carefully: the ensemble predicts very few delayed
@@ -3243,7 +3299,7 @@ conservative.
 
 This means that the ensemble suppresses most of the delay-detection
 signal coming from the `Random forest` and, to a lesser extent, from
-`Naive Bayes`. As a result, it ends up much closer to the majority-class
+`Naive Bayes`. As a result, it ends up much closer to the majority class
 baseline than to the stronger non-trivial models. The ensemble is an
 informative negative result: in the present setup, a simple unweighted
 voting rule is too conservative to improve the practical detection of
@@ -3251,7 +3307,7 @@ delayed flights.
 
 This does not mean that ensemble methods are useless in general. Rather,
 it shows that this particular ensemble is poorly matched to the models
-being combined. When one strong majority-class baseline is combined with
+being combined. When one strong majority class baseline is combined with
 two only mildly non-trivial classifiers, an unweighted majority vote can
 still be dominated by conservative predictions. So the problem here is
 not the ensemble idea itself, but the fact that this simple voting rule
@@ -3288,12 +3344,12 @@ result, each of these models achieved an accuracy of 0.8079, but a
 delayed-class recall of 0. They looked acceptable on overall accuracy
 only because most flights are on time, while completely failing on the
 class that matters for the decision problem. The `hard-vote ensemble`
-moved only slightly beyond this trivial behavior. Its delayed-class
-recall was 0.0022, with a precision of 0.4935 and an F1-score of 0.0044.
-So although it no longer behaved exactly like a pure majority-class
+moved only slightly beyond this trivial behaviour. Its delayed-class
+recall was 0.0022, with a precision of 0.4935 and an F1-score of 0.0044.
+So although it no longer behaved exactly like a pure majority class
 classifier, it remained far too conservative to be useful in practice.
 The `Random forest` and `Naive Bayes` were the only models that moved
-more clearly beyond trivial majority-class prediction. The
+more clearly beyond trivial majority class prediction. The
 `Random forest` performed best for delayed-flight detection on the main
 test split, reaching an accuracy of 0.7975, a delayed-class recall of
 0.0606, a precision of 0.3458 and an F1-score of 0.1032. This is still
@@ -3309,7 +3365,7 @@ but also missed substantially more actual delays.
 
 The repeated-split evaluation strengthens rather than changes this
 conclusion. Across repeated train-test splits, the `C5.0 tree` and
-`cost-sensitive C5.0` kept reproducing the same trivial majority-class
+`cost-sensitive C5.0` kept reproducing the same trivial majority class
 result. The `hard-vote ensemble` moved only marginally beyond this, with
 an average delayed-class recall of about 0.0023. `Naive Bayes` performed
 somewhat better, with average performance across repeated splits of
@@ -3440,7 +3496,7 @@ capacity?” That is a different task, and one that may be better served
 by ranking, prioritization, or more explicit cost-based decision
 modelling than by a simple binary classifier alone.
 
-### Final recommendation
+### Final recommendations
 
 Overall, our recommendation is to treat the current analysis as a useful
 first predictive screening exercise, not as a deployment-ready delay
