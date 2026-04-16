@@ -19,11 +19,89 @@ editor_options:
 
 # Report summary
 
-Introduction
+## Introduction
 
-### Summary
+This report has been written as part of the course MOT143A Business
+Analytics (2025/26 Q3), taught by Dr. Sander Smit, Andriani Adamantidi
+and Sabesanhari Rajamanikam. It presents the application of business
+analytics techniques to a real-world problem, in this case focusing on
+the prediction of flight delays, following a structured business
+analytics workflow from problem formulation to modelling and
+interpretation.
 
-### AI disclaimer
+## Summary
+
+This report examines the problem of flight delays in U.S. domestic
+aviation from an operational decision-making perspective. Flight delays
+impose significant financial and logistical costs on airlines, while
+also negatively affecting customer satisfaction. Because delays often
+propagate through tightly connected flight schedules, early
+identification of high-risk flights is important. The main objective of
+this study is therefore to estimate the probability that a flight will
+be delayed by at least 15 minutes before departure. The resulting model
+is intended to function as a decision-support tool for operations
+control rather than as a fully automated system.
+
+The prediction task is formulated as a binary classification task, where
+the target variable indicates whether a flight’s arrival delay exceeds
+15 minutes. Model performance is evaluated with a focus on recall for
+the delayed class, reflecting the operational importance of identifying
+as many delays as possible, while also considering precision to limit
+false positives. The analysis is based on a large-scale dataset
+comprising approximately 7.2 million U.S. domestic flights from 2018,
+with 28 variables capturing scheduling information, operational metrics,
+and delay causes. Due to the size and complexity of the dataset, a
+substantial portion of the study is devoted to data preparation. Missing
+values are systematically analysed and categorised into structural,
+outcome-related, and repairable missingness.
+
+The data cleaning process includes the removal of non-informative
+variables, conversion of time-related fields into appropriate datetime
+formats, and exclusion of cancelled and diverted flights to ensure
+consistency with the modelling objective. Additional features are
+engineered, including temporal variables such as month, weekday, and
+scheduled departure hour, all of which are observable before departure
+and thus suitable for predictive use.
+
+Exploratory data analysis shows that approximately 19% of flights are
+delayed, indicating a moderately imbalanced classification problem.
+Delay distributions are highly right-skewed, with most flights arriving
+on time or early and a small number experiencing extreme delays.
+Preliminary analyses found that delays occur more frequently later in
+the day.
+
+Subsequent modelling efforts include exploratory data analysis and
+dimensionality reduction techniques such as principal component
+analysis, as well as exploratory clustering to better understand the
+structure of the data. In the supervised modelling stage, several
+machine learning models are applied, including a baseline model, C5.0
+decision trees (plain, boosted, and cost-sensitive variants), random
+forests, and Naive Bayes. During model development, appropriate
+train-test splits are used, and repeated splitting is applied to assess
+the stability of results. Feature selection is performed by working with
+reduced predictor sets for specific models. To address class imbalance
+and improve the detection of delayed flights, boosting and
+cost-sensitive learning techniques are applied. Models are evaluated
+using performance metrics including accuracy, recall, precision, and
+F1-score, and are further analysed using ROC curves and threshold-based
+evaluation.
+
+In conclusion, the results show that, although the data contains
+meaningful structure, it is not strong enough to support reliable delay
+prediction using only pre-departure variables. Most models fail to
+identify delayed flights effectively, and even more advanced methods
+capture only a limited predictive signal. This indicates that the main
+constraint lies in the feature set rather than the modelling approach,
+as key drivers of delays are not fully represented.
+
+## AI disclaimer
+
+This report was written with the assistance of generative AI. AI was
+used to check spelling/grammar (Grammarly), to make tables and graphs,
+and to help generate the layout of the report. It is important to note
+that AI was only used as a helpful tool and did not write any part of
+the report. We used AI to help with the coding of plots, but all the
+explanations and reasoning are done by ourselves.
 
 # 1. Business context and analytics task
 
@@ -1292,8 +1370,15 @@ The table below then summarizes what we did for each variable and why.
 | `DISTANCE` | Standardize | Already meaningful as a numeric feature and scaling makes it comparable to the other variables |
 | `CRS_ELAPSED_TIME` | Standardize | Planned numeric feature and scaling is sufficient, though some overlap with distance is expected |
 | `SCHED_DEP_HOUR` | Encode cyclically, then standardize | Time of day is circular, so sine/cosine encoding avoids jumps at midnight |
-| `MONTH` | Encode cyclically, then standardize | The calendar is circular, so December and January should remain close in feature space |
+| `MONTH` | Encode cyclically, then standardize | A linear 1–12 coding would place January and December at maximum distance, while they are seasonally adjacent. |
 | `WEEKDAY` | Convert to weekend dummy | Keeps dimensions low and easy to interpret |
+
+Note that the cyclical encoding for the `MONTH` assumes that the
+calendar repeats across years. Since this dataset covers only 2018, this
+assumption does not strictly hold. However, the encoding is retained
+because it avoids assigning an artificially large numeric distance
+between month 1 and month 12, and because it keeps the representation
+consistent with the treatment of scheduled departure time.
 
 Now we define the feature space used for PCA and clustering as described
 in the table above. Variables such as delay status, carrier, origin, and
@@ -1474,11 +1559,34 @@ moving on to the PCA itself.
 ## 6.3 Principal component analysis
 
 After inspecting the correlation structure, we can now run the PCA on
-the standardized feature space. The goal is not to replace the original
-variables, but to see whether a smaller number of components captures a
-meaningful share of the structure and what those components represent.
-This helps us assess how compressible the feature space is and whether
-PCA adds something useful before clustering.
+the standardized feature space. Principal component analysis (PCA) is
+used as a dimensionality reduction technique to simplify the dataset
+while retaining as much of the original variation as possible. The
+dataset contains multiple numerical variables that may be correlated,
+which can make interpretation and further analysis more complex. PCA
+transforms these variables into a smaller set of uncorrelated components
+that capture the main patterns in the data.
+
+In line with the pre-departure setting of this analysis, PCA is applied
+only to variables that would realistically be known before departure.
+This ensures that the reduced representation of the data remains
+consistent with the information available at the decision moment, and
+therefore stays aligned with the overall business objective.
+
+The purpose of applying PCA in this context is twofold. First, it helps
+to reduce redundancy between variables by combining correlated features
+into principal components. This allows us to work with a more compact
+representation of the data without losing essential information. Second,
+PCA supports visual exploration by enabling us to plot the data in a
+lower-dimensional space, making it easier to detect structure, trends,
+or potential groupings.
+
+Importantly, PCA is applied as a preparation step for clustering rather
+than as a standalone goal. By reducing noise and concentrating the main
+variation into a few components, it improves the effectiveness and
+interpretability of the clustering results. Overall, PCA provides a
+structured way to summarise the data and supports the subsequent
+analysis steps.
 
 ```{r pca_run}
 # PCA
@@ -1650,11 +1758,34 @@ variables.
 
 ## 6.4 Clustering
 
-Clustering answers a different question than PCA. PCA summarizes
-variation into a smaller number of dimensions. Clustering groups flights
-into a small number of profiles based on their characteristics. The
-clusters are not be interpreted as delay classes, but as flight profiles
-defined by route length, departure timing and calendar structure.
+After reducing dimensionality using PCA, we now explore structure in the
+data through clustering. Clustering is used here as an exploratory step
+to better understand the structure of the data. After reducing
+dimensionality with principal component analysis, we apply clustering to
+identify groups of flights that share similar characteristics. Unlike
+the main classification task, clustering does not rely on a predefined
+target variable, but instead reveals patterns that arise naturally from
+the data.
+
+The purpose of this step is not to build a predictive model, but to gain
+insight into how observations relate to each other in a multivariate
+setting. By grouping similar flights together, we can detect whether
+certain combinations of features tend to occur jointly and whether these
+groups differ in terms of delay behaviour. This helps to interpret the
+data beyond individual variables and supports a more holistic view of
+the operational patterns.
+
+In addition, clustering serves as a validation tool for earlier steps.
+If meaningful and interpretable clusters emerge, this suggests that the
+selected variables and transformations capture relevant structure in the
+data. Overall, clustering complements the previous analysis by providing
+an unsupervised perspective that supports the interpretation of later
+modelling results.
+
+Clustering groups flights into a small number of profiles based on their
+characteristics. The clusters are not be interpreted as delay classes,
+but as flight profiles defined by route length, departure timing and
+calendar structure.
 
 For the clustering step, we only use variables that are known
 pre-departure. We also use the earlier feature-screening results. We
@@ -1991,8 +2122,26 @@ important to state that the clustering results should not be
 over-interpreted. The groups are only moderately distinct and some of
 the structure is easier to see in the transformed feature space than in
 raw summaries. They help reveal some flight profiles and show how the
-PCA dimensions combine in a non-linear grouping of flights. For later
-modelling, the original engineered variables remain the stronger basis.
+PCA dimensions combine in a non-linear grouping of flights.
+
+For later modelling, the original engineered variables remain the
+stronger basis. The clustering results are therefore not carried forward
+as an additional feature in the supervised models. There are three
+reasons support this decision. First, the clusters are only moderately
+distinct: the delay rate across all four clusters hovers around 19%,
+which is indistinguishable from the overall base rate. A cluster label
+that does not correlate with the target variable adds no predictive
+information. Second, the cluster assignments were derived from a
+cyclically encoded feature space that does not map cleanly onto the raw
+predictors used in the classification models. Adding a cluster label
+would introduce an encoding dependency that is harder to justify and
+interpret. Third, the variables that drive the clustering are already
+included directly in the modelling table. Including both the original
+variables and a cluster label derived from them would effectively
+double-count the same information without adding new signal. The
+clusters are therefore treated as a diagnostic tool that confirmed the
+structure of the feature space, rather than as an input to the
+predictive models.
 
 # 7. Modelling
 
@@ -2945,6 +3094,38 @@ matters most in this project: detecting delayed flights early enough to
 be useful. However, its recall remains low, so even the best-performing
 model is still too weak to serve as a final operational solution.
 
+Beyond the quantitative differences, the three model families also
+differ qualitatively in ways that matter for the business context. The
+C5.0 decision tree is the most interpretable: its splits can in
+principle be read as explicit rules, and it is easy to explain to
+operations staff why a particular flight was flagged. However,
+interpretability is irrelevant here because the tree never flags
+anything at all. Boosting and cost-sensitive variants did not change
+this behaviour, which suggests that the tree structure itself, so not
+just its settings, is too rigid for a problem where the signal is weak
+and distributed across many variables. The random forest sacrifices this
+direct interpretability in exchange for robustness. By averaging across
+many trees, each trained on a different data sample and feature subset,
+it reduces the instability of any single tree and captures weaker
+patterns that a single split-based model misses. The cost is that the
+resulting model cannot be read as a simple set of rules; variable
+importance plots are the main interpretability tool, and these show
+associations rather than causal mechanisms. Naive Bayes takes a
+fundamentally different approach: rather than partitioning the feature
+space through splits, it estimates the probability of each class
+directly from the observed feature distributions. This makes it compact
+and fast, and it produces probabilities that are useful for ranking
+flights by risk. Its main assumption is that predictors are
+conditionally independent given the class label. This is clearly
+violated here, since distance and scheduled elapsed time are strongly
+correlated. Despite this, Naive Bayes still extracts some useful ranking
+signal, as confirmed by its AUC of 0.626. In practice, this means that
+Naive Bayes may be the most useful model for producing a ranked
+watchlist, even though it detects fewer individual delayed flights than
+the random forest at a fixed threshold. The choice between them
+therefore depends on whether the operations team needs hard yes/no flags
+or a ranked priority list.
+
 ## 7.10 Multiple splits
 
 The comparison in the previous section was based on one particular
@@ -3210,6 +3391,28 @@ decision-support perspective, both the `Random forest` and `Naive Bayes`
 seem more useful as weak risk-ranking tools than as strong stand-alone
 classifiers.
 
+The ROC curve also makes it possible to inspect what happens when the
+classification threshold is adjusted. By default, both the random forest
+and Naive Bayes assign a flight to the delayed class when its predicted
+probability exceeds 0.50. Because the delayed class represents only
+about 19% of the data, a threshold of 0.50 is effectively too high: the
+models rarely exceed it, which explains the very low recall values
+observed earlier. Lowering the threshold would force both models to flag
+more flights as delayed, increasing recall at the cost of more false
+positives. For the random forest, reading from the ROC curve, a
+threshold of approximately 0.25 would roughly double the true positive
+rate compared to the default setting, while simultaneously accepting a
+higher false positive rate. This is consistent with the business
+priority established in Section 1.3: in a pre-departure context,
+catching more real delays at the cost of some unnecessary preparation is
+preferable to missing delays entirely. Whether that trade-off is
+operationally acceptable depends on the cost of a false alarm relative
+to the cost of an undetected delay, a ratio that the current data does
+not contain. The key takeaway is that the default 0.50 threshold is not
+a principled choice for this problem, and that threshold selection
+should be treated as a separate decision informed by operational cost
+considerations rather than by model defaults.
+
 ## 7.12 Model disagreement and simple voting
 
 If models disagree on the same flights, that can be useful information.
@@ -3381,7 +3584,7 @@ somewhat better, with average performance across repeated splits of
 approximately 0.8071 for accuracy, 0.0077 for delayed-class recall,
 0.3947 for precision and 0.0152 for F1. The `Random forest` again
 remained the strongest model, with average performance of approximately
-0.7994 for accuracy, 0.0473 for delayed-class recall, 0.3396 for
+0.7994 for accuracy, 0.0473 for delayed-class recall, 0.3396 for
 precision and 0.0830 for F1. So the Random forest is consistently better
 than the simpler models, but its performance is still too limited for
 strong operational use.
@@ -3477,41 +3680,58 @@ operations teams trust and understand the output.
 
 ### How more advanced analytics could help
 
-Looking beyond the implemented models, there are several directions that
-could improve the problem in principle, but only if the data and
-decision framing become richer.
+Three techniques from later parts of the course are worth reflecting on:
+deep learning, text analytics, and reinforcement learning. For each, we
+discuss what would be needed to apply it, what value it could add, and
+what limitations apply.
 
-A first direction is representation learning. If much richer and more
-detailed operational data were available, more flexible models could
-potentially learn interactions between airport, carrier, schedule,
-disruption, and network effects that the current tree-based models
-cannot capture well. The potential value is greater modelling
-flexibility, but the trade-off would be lower transparency and higher
-demands on validation.
+**Deep learning** A neural network can capture non-linear interactions
+between predictors that a decision tree or random forest can only
+approximate through many splits. In this problem, that could mean
+learning combined patterns across carrier, airport, and time of day
+simultaneously. However, deep learning requires a much richer input than
+the seven structured variables used here. With the current feature set,
+a neural network would likely not outperform the random forest, because
+there is simply not enough input complexity to justify the added
+architectural choices. A further limitation is interpretability: unlike
+a decision tree, a neural network does not produce readable rules, which
+makes it harder to explain flagged flights to operations staff.
 
-A second direction is text analytics. Useful text sources might include
-maintenance logs, dispatcher notes, incident descriptions, weather
-bulletins, or pilot reports. These could contain early warning
-information that does not appear in structured schedule data. In that
-case, NLP methods could transform text into additional pre-departure
-risk signals. The challenge is that such data are noisy,
-context-dependent, and harder to standardize.
+**Text analytics** Maintenance logs, dispatcher notes and weather
+conditions issued before departure could contain useful early warning
+signals that do not appear in any structured schedule variable. For
+example, a note about a known technical issue with an inbound aircraft
+could be a strong predictor of delay. NLP methods such as term frequency
+weighting could convert such text into additional features. What would
+be needed is a reliable link between text records and individual
+flights, for example through aircraft tail numbers and timestamps. The
+main risk is that such records are inconsistently written across
+carriers and airports, making them hard to standardize into a clean
+feature.
 
-A third direction is to reformulate the problem toward decision support
-rather than pure prediction. Instead of asking only “Will this flight be
-delayed?”, the airline may eventually care more about “Which flights
-should be monitored or acted on first, given limited operational
-capacity?” That is a different task, and one that may be better served
-by ranking, prioritization, or more explicit cost-based decision
-modelling than by a simple binary classifier alone.
+**Reinforcement learning** The current problem is framed as a one-shot
+prediction: given pre-departure information, classify the flight as
+delayed or not. Reinforcement learning would reframe this as a
+sequential decision problem: an agent decides which flights to monitor,
+observes the actual outcomes, and updates its strategy over time. This
+is closer to how operations teams actually work, since they allocate
+limited attention across many flights throughout the day. What would be
+needed is a defined reward function that captures the cost of a missed
+delay versus the cost of a false alarm, and a feedback loop between
+model decisions and observed outcomes. In practice, this requires system
+integration that goes well beyond the current analytical setting, making
+reinforcement learning a longer-term direction rather than a near-term
+improvement.
 
-### Final recommendations
+### Final recommendation
 
 Overall, our recommendation is to treat the current analysis as a useful
 first predictive screening exercise, not as a deployment-ready delay
 decision system. The immediate next step should not be “use a more
 complex model,” but rather “improve the data and sharpen the decision
-problem.”
+problem.” For example, by defining whether the operations team truly
+needs a binary yes/no-delay alert, or a dashboard with daily top 5%
+highest risk of delay.
 
 More specifically, the most valuable follow-up would be to:
 
@@ -3520,18 +3740,27 @@ More specifically, the most valuable follow-up would be to:
 
 -   evaluate models within a clearer decision framework, for example
     ranking flights for human review instead of forcing direct
-    automation; ranking flights can be performed by the random forest
-    confirmed the ROC/AUC graph
+    automation
 
 -   continue using stronger validation designs, so that evaluation is
     seen as a distribution rather than as one fixed number
 
+-   reconsider the ensembling strategy, knowing that soft voting will
+    not fix the current ensemble, since C5.0 will output the constant
+    base rate of 19% delay for every flight and drag down other useful
+    probabilities from the random forest.
+
 -   only consider substantially more advanced methods once the data
-    richness and decision framing justify them
+    richness, and decision framing, justify them
 
 So the final conclusion is not that the problem is unsolvable, but that
 the current structured pre-departure variables are not sufficient for a
-strong operational classifier on their own. The project still succeeds
-analytically because it identifies the main sources of signal, shows
-clearly why some modelling approaches fail, and translates those
-findings into realistic next steps for decision support.
+strong operational classifier on their own. Implementing a model with
+current performance would force the airline to face the trade-off of
+missing too much delays (causing resource shortage and delay cascade) or
+generate excess false alarms (causing alarm fatigue and ignore delays).
+
+The project still succeeds analytically because it identifies the main
+sources of signal, shows clearly why some modelling approaches fail, and
+translates those findings into realistic next steps for decision
+support.
