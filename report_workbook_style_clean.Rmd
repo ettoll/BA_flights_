@@ -1,7 +1,7 @@
 ---
 title: 'MOT143A: Business Analytics group 20'
 author: "Nora Donders (5276489), Stijn Duivenvoorden (5188822), Lotte Feilzer (5403367), Brian Joemmankhan (5115698), Hidde Segers (5402948)"
-date: "2026-03-04"
+date: "2026-04-17"
 output:
   pdf_document:
     toc: true
@@ -86,13 +86,14 @@ using performance metrics including accuracy, recall, precision, and
 F1-score, and are further analysed using ROC curves and threshold-based
 evaluation.
 
-In conclusion, the results show that, although the data contains
-meaningful structure, it is not strong enough to support reliable delay
-prediction using only pre-departure variables. Most models fail to
-identify delayed flights effectively, and even more advanced methods
-capture only a limited predictive signal. This indicates that the main
-constraint lies in the feature set rather than the modelling approach,
-as key drivers of delays are not fully represented.
+At the default classification threshold, most models fail to identify
+delayed flights effectively. However, threshold tuning reveals that the
+pre-departure features do contain meaningful predictive signal: a tuned
+soft-vote ensemble of the `Random Forest` and `Naive Bayes` models
+recovers approximately 61% of delayed flights, at the cost of a
+substantial false positive rate. This shows that the models can function
+as a risk-prioritisation tool, although not as a fully automated
+decision system.
 
 ## AI disclaimer
 
@@ -228,7 +229,7 @@ options(repos = r)})
 
 # Main packages 
 packages <- c("ggplot2", "Hmisc", "rsample", "gmodels", "C50", "randomForest",
-  "factoextra", "lattice", "reshape2", "pROC","e1071"
+  "factoextra", "lattice", "reshape2", "pROC","e1071","tidyr","ggrepel"
 )
 
 # Install missing packages and load everything
@@ -1131,8 +1132,6 @@ delay rate or are in the the top 10% of volume of flights in the
 dataset.
 
 ```{r origin_volume_vs_delay_final}
-library(ggrepel)
-
 origin_top50_vol <- origin_summary[order(-origin_summary$n), ][1:50, ]
 
 avg_delay <- mean(origin_top50_vol$delay_rate, na.rm = TRUE)
@@ -1860,7 +1859,7 @@ To choose the number of clusters, we first use the elbow plot. This plot
 shows the total cluster sum of squares for different values of `k`. The
 point of using it is not to find one uniquely correct number of
 clusters, but to assess at what amount of clusters the plot begins to
-flatten out. When that happens we can choose to not add any extra
+flatten out. When that happens, we can choose to not add any extra
 clusters because it would cause less extra structure and mainly adds
 complexity. We opted for plotting the elbow plot between `k = 2` and
 `k = 10`, but for clearity of the elbow purposes show `k=2` to `k=6` in
@@ -2127,20 +2126,20 @@ PCA dimensions combine in a non-linear grouping of flights.
 For later modelling, the original engineered variables remain the
 stronger basis. The clustering results are therefore not carried forward
 as an additional feature in the supervised models. There are three
-reasons support this decision. First, the clusters are only moderately
-distinct: the delay rate across all four clusters hovers around 19%,
-which is indistinguishable from the overall base rate. A cluster label
-that does not correlate with the target variable adds no predictive
-information. Second, the cluster assignments were derived from a
-cyclically encoded feature space that does not map cleanly onto the raw
-predictors used in the classification models. Adding a cluster label
-would introduce an encoding dependency that is harder to justify and
-interpret. Third, the variables that drive the clustering are already
-included directly in the modelling table. Including both the original
-variables and a cluster label derived from them would effectively
-double-count the same information without adding new signal. The
-clusters are therefore treated as a diagnostic tool that confirmed the
-structure of the feature space, rather than as an input to the
+reasons that support this decision. First, the clusters are only
+moderately distinct: the delay rate across all four clusters hovers
+around 19%, which is indistinguishable from the overall base rate. A
+cluster label that does not correlate with the target variable adds no
+predictive information. Second, the cluster assignments were derived
+from a cyclically encoded feature space that does not map cleanly onto
+the raw predictors used in the classification models. Adding a cluster
+label would introduce an encoding dependency that is harder to justify
+and interpret. Third, the variables that drive the clustering are
+already included directly in the modelling table. Including both the
+original variables and a cluster label derived from them would
+effectively double-count the same information without adding new signal.
+The clusters are therefore treated as a diagnostic tool that confirmed
+the structure of the feature space, rather than as an input to the
 predictive models.
 
 # 7. Modelling
@@ -2699,7 +2698,8 @@ is about 80.8%. On its own, that number may look acceptable, but here it
 is misleading. The model reaches this accuracy only because on-time
 flights are the majority class. In practical terms, the boosted tree
 still behaves like a majority class classifier rather than a useful
-delay predictor.\
+delay predictor.
+
 \
 This is also reflected in the other evaluation measures. Recall for the
 delayed class is 0, because the model fails to identify any delayed
@@ -2728,14 +2728,11 @@ that changes the behaviour of the tree.
 
 ```{r cost_sensitive_c50_evaluation}
 # cost-sensitive C5.0: make missed delays more expensive than false alarms
-cost_matrix <- matrix(
-  c(NA, 1,
-    10,  NA),
-  nrow = 2,
-  ncol = 2,
-  byrow = FALSE
-)
-rownames(cost_matrix) <- colnames(cost_matrix) <- c("Delayed", "On_time")
+cost_matrix <- matrix(c(0, 2,     # FN = predicted On_time, actual Delayed
+                        1, 0),     # FP = predicted Delayed, actual On_time
+                      nrow = 2, ncol = 2, byrow = FALSE)
+
+rownames(cost_matrix) <- colnames(cost_matrix) <- c("On_time", "Delayed")
 
 model_tree_cost <- C50::C5.0(
   IS_DELAYED_15 ~ .,
@@ -2992,7 +2989,7 @@ In the table we can see the following. On the testing data, the model
 correctly identifies 101 delayed flights, while missing 17,185 delayed
 flights. It also incorrectly flags 138 on-time flights as delayed. This
 gives an accuracy of 0.8075, a delayed-class recall of 0.0058, a
-precision of 0.4225, and an F1-score of 0.01152.
+precision of 0.4226, and an F1-score of 0.01152.
 
 These results show that Naive Bayes does move beyond trivial majority
 class prediction. Unlike the normal, boosted and cost-sensitive C5.0
@@ -3067,6 +3064,15 @@ comparison_table <- rbind(
 
 comparison_table
 ```
+
+One thing to note is that the models do not all use the same predictors.
+The C5.0 tree includes `ORIGIN` and `DEST` as predictors, while the
+random forest and Naive Bayes do not, because the randomForest package
+cannot handle variables with this many categories. This means the
+comparison is not perfectly fair — the C5.0 tree has access to more
+information. In practice, this does not affect the conclusions here,
+because the C5.0 tree never makes any splits at all, so the extra
+variables do not change its behaviour.
 
 The comparison table shows a clear pattern. The `C5.0 tree`,
 `Boosted C5.0`, and `Cost-sensitive C5.0` all lead to exactly the same
@@ -3290,130 +3296,7 @@ produces a clearly non-zero delayed-flight recall on a consistent basis.
 So the main limitation is not one unlucky train-test split, but the
 underlying weakness of the simpler models for this task.
 
-## 7.11 Multiple thresholds
-
-So far, we mainly evaluated models through final class labels such as
-`Delayed` and `On_time`. That is useful for operational interpretation,
-because in practice the airline ultimately needs a yes-or-no decision.
-However, this approach fixes one classification threshold at the outset.
-ROC curves and the AUC provide a different perspective: they show how
-well a model ranks flights from lower to higher delay risk across many
-possible threshold.\
-\
-We only include this analysis for models that return usable class
-probabilities. That is an important restriction here. The
-`cost-sensitive C5.0` model was designed to change the classification
-decision under asymmetric costs, so we do not treat its output as an
-ordinary probability ranking for ROC/AUC purposes. For that reason, we
-focus on the plain `C5.0` tree, the `Random forest` and `Naive Bayes`.
-
-```{r roc_auc}
-# ROC/AUC: predicted probabilities rather than final class labels
-tree_prob <- predict(model_tree, testing, type = "prob")[, "Delayed"]
-rf_prob   <- predict(model_rf, testing_rf, type = "prob")[, "Delayed"]
-nb_prob   <- predict(model_nb, testing_nb, type = "raw")[, "Delayed"]
-
-# ROC curves
-roc_tree <- pROC::roc(
-  testing$IS_DELAYED_15,
-  tree_prob,
-  levels = c("On_time", "Delayed"),
-  quiet = TRUE
-)
-
-roc_rf <- pROC::roc(
-  testing_rf$IS_DELAYED_15,
-  rf_prob,
-  levels = c("On_time", "Delayed"),
-  quiet = TRUE
-)
-
-roc_nb <- pROC::roc(
-  testing_nb$IS_DELAYED_15,
-  nb_prob,
-  levels = c("On_time", "Delayed"),
-  quiet = TRUE
-)
-
-plot(roc_tree, col = "blue", main = "ROC curves on the testing data")
-lines(roc_rf, col = "green")
-lines(roc_nb, col = "orange")
-legend(
-  "bottomright",
-  legend = c("C5.0 tree", "Random forest", "Naive Bayes"),
-  col = c("blue", "green", "orange"),
-  lwd = 2,
-  bty = "n"
-)
-
-# AUC summary table
-auc_table <- data.frame(
-  model = c("C5.0 tree", "Random forest", "Naive Bayes"),
-  auc = c(
-    as.numeric(pROC::auc(roc_tree)),
-    as.numeric(pROC::auc(roc_rf)),
-    as.numeric(pROC::auc(roc_nb))
-  )
-)
-
-auc_table
-```
-
-The ROC plot shows a clear difference between the three models. The
-`C5.0 tree` lies exactly on the diagonal, which means that it cannot
-rank flights better than chance. This is fully consistent with the
-earlier results, where the tree behaved like a majority class classifier
-and failed to identify delayed flights. Both the `Random forest` and
-`Naive Bayes` lie above the diagonal, which means that both models
-contain at least some ability to rank higher-risk flights above
-lower-risk flights.
-
-The AUC table summarizes this in one number. The `C5.0 tree` has an AUC
-of 0.500, which is exactly chance level. The`Random forest` reaches an
-AUC of 0.623, while `Naive Bayes` performs slightly better with an AUC
-of 0.626. This adds an important nuance to the earlier results. At the
-chosen classification threshold, the `Random forest` performed better
-than `Naive Bayes` in terms of delayed-class recall and F1, so it
-remained the strongest classifier for the main decision problem. But in
-threshold-independent ranking terms, `Naive Bayes` performs at least as
-well as, and here slightly better than, the `Random forest`. In other
-words, `Naive Bayes` appears somewhat better at ordering flights by
-relative delay risk, even though it is more conservative once a fixed
-classification threshold is applied.
-
-So the ROC and AUC results do not overturn the earlier conclusion, but
-they refine it. The `C5.0 tree` is uninformative as both a classifier
-and a ranking model. The `Random forest` remains the best model for
-actually detecting some delayed flights at the chosen threshold.
-`Naive Bayes`, however, shows that a model can have weak classification
-performance while still containing modest ranking value. From a
-decision-support perspective, both the `Random forest` and `Naive Bayes`
-seem more useful as weak risk-ranking tools than as strong stand-alone
-classifiers.
-
-The ROC curve also makes it possible to inspect what happens when the
-classification threshold is adjusted. By default, both the random forest
-and Naive Bayes assign a flight to the delayed class when its predicted
-probability exceeds 0.50. Because the delayed class represents only
-about 19% of the data, a threshold of 0.50 is effectively too high: the
-models rarely exceed it, which explains the very low recall values
-observed earlier. Lowering the threshold would force both models to flag
-more flights as delayed, increasing recall at the cost of more false
-positives. For the random forest, reading from the ROC curve, a
-threshold of approximately 0.25 would roughly double the true positive
-rate compared to the default setting, while simultaneously accepting a
-higher false positive rate. This is consistent with the business
-priority established in Section 1.3: in a pre-departure context,
-catching more real delays at the cost of some unnecessary preparation is
-preferable to missing delays entirely. Whether that trade-off is
-operationally acceptable depends on the cost of a false alarm relative
-to the cost of an undetected delay, a ratio that the current data does
-not contain. The key takeaway is that the default 0.50 threshold is not
-a principled choice for this problem, and that threshold selection
-should be treated as a separate decision informed by operational cost
-considerations rather than by model defaults.
-
-## 7.12 Model disagreement and simple voting
+## 7.11 Model disagreement and hard voting
 
 If models disagree on the same flights, that can be useful information.
 In general, disagreement may indicate that some flights are harder to
@@ -3503,7 +3386,7 @@ comparison_with_ensemble
 The hard-vote rule does not provide a useful compromise between the
 individual models. Although it does move slightly beyond trivial
 majority class prediction, its delayed-class recall remains extremely
-low at 0.0022, far below both the`Random forest` (0.0606) and
+low at 0.0022, far below both the `Random forest` (0.0606) and
 `Naive Bayes` (0.0058). Its relatively high precision (0.4935) should
 also be interpreted carefully: the ensemble predicts very few delayed
 flights at all, so it avoids false alarms mainly by remaining highly
@@ -3526,110 +3409,403 @@ not the ensemble idea itself, but the fact that this simple voting rule
 does not preserve the limited delayed-flight signal that is present in
 the better individual models.
 
+## 7.12 Multiple thresholds, threshold tuning ans soft voting
+
+So far, we mainly evaluated models through final class labels such as
+`Delayed` and `On_time`. That is useful for operational interpretation,
+because in practice the airline ultimately needs a yes-or-no decision.
+However, this approach fixes one classification threshold at the outset.
+ROC curves and the AUC provide a different perspective: they show how
+well a model ranks flights from lower to higher delay risk across many
+possible threshold.\
+\
+We only include this analysis for models that return usable class
+probabilities. That is an important restriction here. The
+`cost-sensitive C5.0` model was designed to change the classification
+decision under asymmetric costs, so we do not treat its output as an
+ordinary probability ranking for ROC/AUC purposes. For that reason, we
+focus on the plain `C5.0` tree, the `Random forest` and `Naive Bayes`.
+
+```{r roc_auc}
+# ROC/AUC: predicted probabilities rather than final class labels
+tree_prob <- predict(model_tree, testing, type = "prob")[, "Delayed"]
+rf_prob   <- predict(model_rf, testing_rf, type = "prob")[, "Delayed"]
+nb_prob   <- predict(model_nb, testing_nb, type = "raw")[, "Delayed"]
+
+# ROC curves
+roc_tree <- pROC::roc(
+  testing$IS_DELAYED_15,
+  tree_prob,
+  levels = c("On_time", "Delayed"),
+  quiet = TRUE
+)
+
+roc_rf <- pROC::roc(
+  testing_rf$IS_DELAYED_15,
+  rf_prob,
+  levels = c("On_time", "Delayed"),
+  quiet = TRUE
+)
+
+roc_nb <- pROC::roc(
+  testing_nb$IS_DELAYED_15,
+  nb_prob,
+  levels = c("On_time", "Delayed"),
+  quiet = TRUE
+)
+
+plot(roc_tree, col = "blue", main = "ROC curves on the testing data")
+lines(roc_rf, col = "green")
+lines(roc_nb, col = "orange")
+legend(
+  "bottomright",
+  legend = c("C5.0 tree", "Random forest", "Naive Bayes"),
+  col = c("blue", "green", "orange"),
+  lwd = 2,
+  bty = "n"
+)
+
+# AUC summary table
+auc_table <- data.frame(
+  model = c("C5.0 tree", "Random forest", "Naive Bayes"),
+  auc = c(
+    as.numeric(pROC::auc(roc_tree)),
+    as.numeric(pROC::auc(roc_rf)),
+    as.numeric(pROC::auc(roc_nb))
+  )
+)
+
+auc_table
+```
+
+The ROC plot shows a clear difference between the three models. The
+`C5.0 tree` lies exactly on the diagonal, which means that it cannot
+rank flights better than chance. This is fully consistent with the
+earlier results, where the tree behaved like a majority class classifier
+and failed to identify delayed flights. Both the `Random forest` and
+`Naive Bayes` lie above the diagonal, which means that both models
+contain at least some ability to rank higher-risk flights above
+lower-risk flights.
+
+The AUC table summarizes this in one number. The `C5.0 tree` has an AUC
+of 0.500, which is equal to chance level. The `Random forest` reaches an
+AUC of 0.623, while `Naive Bayes` performs slightly better with an AUC
+of 0.626. This adds an important nuance to the earlier results. At the
+chosen classification threshold, the `Random forest` performed better
+than `Naive Bayes` in terms of delayed-class recall and F1, so it
+remained the strongest classifier for the main decision problem. But in
+threshold-independent ranking terms, `Naive Bayes` performs at least as
+well as, and here slightly better than, the `Random forest`. In other
+words, `Naive Bayes` appears somewhat better at ordering flights by
+relative delay risk, even though it is more conservative once a fixed
+classification threshold is applied.
+
+So the ROC and AUC results do not overturn the earlier conclusion, but
+they refine it. The `C5.0 tree` is uninformative as both a classifier
+and a ranking model. The `Random forest` remains the best model for
+actually detecting some delayed flights at the chosen threshold.
+`Naive Bayes`, however, shows that a model can have weak classification
+performance while still containing modest ranking value. From a
+decision-support perspective, both the `Random forest` and `Naive Bayes`
+seem more useful as weak risk-ranking tools than as strong stand-alone
+classifiers.
+
+The ROC curve also makes it possible to inspect what happens when the
+classification threshold is adjusted. By default, both the random forest
+and Naive Bayes assign a flight to the delayed class when its predicted
+probability exceeds 0.50. Because the delayed class represents only
+about 19% of the data, a threshold of 0.50 is effectively too high: the
+models rarely exceed it, which explains the very low recall values
+observed earlier. Lowering the threshold would force both models to flag
+more flights as delayed, increasing recall at the cost of more false
+positives. For the random forest, reading from the ROC curve, a
+threshold of approximately 0.25 would roughly double the true positive
+rate compared to the default setting, while simultaneously accepting a
+higher false positive rate. This is consistent with the business
+priority established in Section 1.3: in a pre-departure context,
+catching more real delays at the cost of some unnecessary preparation is
+preferable to missing delays entirely. Whether that trade-off is
+operationally acceptable depends on the cost of a false alarm relative
+to the cost of an undetected delay, a ratio that the current data does
+not contain. The key takeaway is that the default 0.50 threshold is not
+a principled choice for this problem, and that threshold selection
+should be treated as a separate decision informed by operational cost
+considerations rather than by model defaults.
+
+```{r threshold_sweep}
+# Get predicted probabilities for the delayed class
+rf_prob <- predict(model_rf, testing_rf, type = "prob")[, "Delayed"]
+nb_prob <- predict(model_nb, testing_nb, type = "raw")[, "Delayed"]
+
+# Sweep thresholds from 0.05 to 0.60
+thresholds <- seq(0.05, 0.60, by = 0.05)
+
+sweep_metrics <- function(prob, actual, thresholds) {
+  out <- data.frame()
+  for (t in thresholds) {
+    pred <- factor(
+      ifelse(prob >= t, "Delayed", "On_time"),
+      levels = c("On_time", "Delayed")
+    )
+    m <- metric_summary(actual, pred)
+    m$threshold <- t
+    out <- rbind(out, m)
+  }
+  out
+}
+
+rf_sweep <- sweep_metrics(rf_prob, testing_rf$IS_DELAYED_15, thresholds)
+rf_sweep$model <- "Random forest"
+
+nb_sweep <- sweep_metrics(nb_prob, testing_nb$IS_DELAYED_15, thresholds)
+nb_sweep$model <- "Naive Bayes"
+
+threshold_table <- rbind(rf_sweep, nb_sweep)
+
+# Show compact table
+threshold_table[, c("model", "threshold", "accuracy",
+                    "recall_delayed", "precision_delayed", "f1_delayed")]
+```
+
+So far, both the `Random forest` and `Naive Bayes` were evaluated using
+the default classification threshold of 0.50. As the ROC discussion in
+the previous section indicated, this default is not well matched to our
+problem: because the delayed class represents only about 19% of flights,
+predicted probabilities rarely exceed 0.50 and almost every flight is
+labelled as `On_time`. A lower threshold forces the model to flag more
+flights as delayed, which trades precision for recall. This trade-off
+matters operationally, since missing a real delay was identified in
+Section 1.3 as the more costly error.
+
+We therefore sweep the threshold from 0.05 to 0.60 in steps of 0.05 and
+recompute recall, precision and F1 for the delayed class at each value,
+using the same test set as the earlier comparison. The table above shows
+the resulting trade-off for both models. Several things stand out. At
+the default threshold of 0.50, Random forest recall is only 6.3% and
+Naive Bayes is below 1%, matching the results in Section 7.9. As the
+threshold drops, recall climbs while precision barely moves.
+`Naive Bayes` and `Random forest` precision stay around 20–35% across
+the whole range. At threshold 0.15 the `Random forest` identifies about
+70% of actual delayed flights and `Naive Bayes` about 74%. The F1-score,
+which balances both metrics, peaks in the 0.15–0.20 region for both
+models rather than at 0.50.
+
+```{r threshold_plot}
+plot_long <- tidyr::pivot_longer(
+  threshold_table[, c("model", "threshold",
+                      "recall_delayed", "precision_delayed", "f1_delayed")],
+  cols = c(recall_delayed, precision_delayed, f1_delayed),
+  names_to = "metric", values_to = "value"
+)
+
+# Relabel for readability
+plot_long$metric <- factor(plot_long$metric,
+  levels = c("recall_delayed", "precision_delayed", "f1_delayed"),
+  labels = c("Recall", "Precision", "F1"))
+
+ggplot(plot_long, aes(x = threshold, y = value, color = metric)) +
+  geom_line() +
+  geom_point() +
+  facet_wrap(~ model) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1),
+                     limits = c(0, 1)) +
+  scale_x_continuous(breaks = thresholds) +
+  labs(
+    title = "Recall, precision and F1 by classification threshold",
+    x = "Threshold for predicting 'Delayed'",
+    y = "Metric value",
+    color = "Metric"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+The plot makes the trade-off visible in a single view. Both models show
+the same shape: recall declines as the threshold rises, precision is
+relatively stable and F1 traces a clear peak at low thresholds. For the
+`Random forest`, F1 reaches its maximum of 0.357 at threshold 0.15 and
+for Naive Bayes the maximum is 0.360 at the same threshold. Both peaks
+are well below the default 0.50, which confirms that the default setting
+was actively hiding useful predictive signal rather than faithfully
+reflecting model quality. In other words, the disappointing results
+reported in Section 7.9 were partly due to the threshold, not only a
+feature limitation.
+
+The plot also sharpens the interpretation of the two models relative to
+each other. At high thresholds (above about 0.30) the `Random forest`
+retains somewhat more precision, which is consistent with the fact that
+its class probabilities are more spread out. At lower thresholds, the
+two models become very similar, which suggests that they extract
+comparable ranking information from the pre-departure features, even
+though the underlying logic (tree splits vs. conditional probabilities)
+is very different. This similarity in ranking behaviour is consistent
+with the near-identical AUC values found in Section 7.11 of 0.623 and
+0.626.
+
+```{r threshold_operational}
+# F1-optimal threshold per model
+best_rf <- rf_sweep[which.max(rf_sweep$f1_delayed), ]
+best_nb <- nb_sweep[which.max(nb_sweep$f1_delayed), ]
+
+cat("F1-optimal threshold for Random forest:", best_rf$threshold, "\n")
+cat("F1-optimal threshold for Naive Bayes:  ", best_nb$threshold, "\n")
+
+# operational threshold based on the business priority 
+OPERATIONAL_THRESHOLD <- 0.20
+
+pred_rf_tuned <- factor(
+  ifelse(rf_prob >= OPERATIONAL_THRESHOLD, "Delayed", "On_time"),
+  levels = c("On_time", "Delayed")
+)
+pred_nb_tuned <- factor(
+  ifelse(nb_prob >= OPERATIONAL_THRESHOLD, "Delayed", "On_time"),
+  levels = c("On_time", "Delayed")
+)
+
+rf_tuned_metrics <- metric_summary(testing_rf$IS_DELAYED_15, pred_rf_tuned)
+rf_tuned_metrics$model <- paste0("Random forest (t=", OPERATIONAL_THRESHOLD, ")")
+
+nb_tuned_metrics <- metric_summary(testing_nb$IS_DELAYED_15, pred_nb_tuned)
+nb_tuned_metrics$model <- paste0("Naive Bayes (t=", OPERATIONAL_THRESHOLD, ")")
+
+# Soft-vote ensemble: average the probabilities of RF and NB
+avg_prob <- 0.5 * rf_prob + 0.5 * nb_prob
+pred_soft <- factor(
+  ifelse(avg_prob >= OPERATIONAL_THRESHOLD, "Delayed", "On_time"),
+  levels = c("On_time", "Delayed")
+)
+soft_metrics <- metric_summary(testing$IS_DELAYED_15, pred_soft)
+soft_metrics$model <- paste0("Soft-vote RF+NB (t=", OPERATIONAL_THRESHOLD, ")")
+
+tuned_comparison <- rbind(rf_tuned_metrics, nb_tuned_metrics, soft_metrics)[
+  , c("model", "accuracy", "recall_delayed", "precision_delayed",
+      "f1_delayed", "tp", "tn", "fp", "fn")
+]
+tuned_comparison
+```
+
+Based on the sweep, we choose an operational threshold of 0.20 rather
+than the F1-optimum at 0.15. This is a deliberate modelling choice: at
+threshold 0.15, approximately half of all flights are flagged as
+delayed, which in an operational setting would create serious alarm
+fatigue and quickly erode trust in the system. At threshold 0.20,
+`Random forest` still recovers 55.7% of real delays with 25.9%
+precision, and `Naive Bayes` 59.5% with 25.7%. The slightly lower F1 is
+an acceptable trade for a flagging rate that operations teams can
+realistically act on.
+
+The final comparison confirms two conclusions. First, the tuned
+`Random forest` and the tuned `Naive Bayes` are now genuinely useful:
+compared to their default-threshold versions, recall rises by almost an
+order of magnitude (from 0.06 to 0.56 for `Random forest` and from 0.006
+to 0.59 for `Naive Bayes`), while precision drops from 0.35–0.42 to
+around 0.26. For the business problem, this is a favourable trade.
+Second, the soft-vote ensemble at the same threshold clearly outperforms
+both individual models on recall (0.609), precision (0.265) and F1
+(0.370). This is a meaningful result given that the earlier hard-vote
+ensemble in Section 7.12 was the worst performer on recall. The
+difference is structural: averaging probabilities preserves the weak
+delayed-class signal that both models carry, whereas majority voting
+over hard labels suppressed it. This is also the ensemble design the
+repeated-split analysis pointed towards, so it is reassuring to see the
+same conclusion confirmed here.
+
+Taken together, threshold tuning and soft voting substantially change
+the practical business case. Without them, the earlier sections
+suggested that even the best model recovers almost no delayed flights.
+With them, a tuned soft-vote ensemble recovers about 61% of real delays,
+at the cost of flagging roughly one in three on-time flights as well.
+Whether that rate is acceptable is a business decision rather than a
+statistical one, but it is a decision the airline can now actually make,
+which was not the case before this step.
+
 # 8. Conclusions and recommendations
 
 This project examined whether flight delays can be predicted before
 departure using variables that are operationally available in advance.
-Across the full pipeline one main conclusion emerges: the data does
-contain useful structure, but that structure is not strong enough to
-produce a reliable classifier for delayed flights with the current
-feature set. The problem is therefore substantially harder than overall
-accuracy alone would suggest.
+The goal was not to predict delays perfectly, but to create a useful
+risk signal that could support airline operations in allocating
+attention and resources more effectively. Across the full analysis
+pipeline, one main conclusion emerges: the data does contain meaningful
+structure, but this structure is too weak to support a reliable binary
+classification system for delayed flights when only pre-departure
+variables are used.
 
 The exploratory analysis already pointed in this direction. Timing and
 route-related variables consistently carried most of the usable
 structure in the data. In both the PCA and clustering steps, scheduled
 timing, distance, and scheduled elapsed time emerged as the main
-dimensions along which flights differed. This means the representation
-choices were meaningful: the later models were learning from variables
-that reflect real operational differences between flights, rather than
-from arbitrary coding effects. At the same time, the unsupervised
-analysis also showed that the structure was not cleanly separable.
-Flights did not fall into a few sharply distinct groups, and the feature
-space remained spread over multiple dimensions. That already suggested
-that prediction would be challenging.
+dimensions along which flights differed. This suggests that the
+representation choices were meaningful, since the later models were
+learning from variables that reflect real operational differences
+between flights. At the same time, the unsupervised analysis also showed
+that this structure was not cleanly separable, which already indicated
+that accurate prediction would be difficult.
 
-The supervised modelling results confirm this. The plain `C5.0 tree`,
-the `boosted C5.0 tree` and the `cost-sensitive C5.0 tree` all defaulted
-to the majority class and predicted every flight as `On_time`. As a
-result, each of these models achieved an accuracy of 0.8079, but a
-delayed-class recall of 0. They looked acceptable on overall accuracy
-only because most flights are on time, while completely failing on the
-class that matters for the decision problem. The `hard-vote ensemble`
-moved only slightly beyond this trivial behaviour. Its delayed-class
-recall was 0.0022, with a precision of 0.4935 and an F1-score of 0.0044.
-So although it no longer behaved exactly like a pure majority class
-classifier, it remained far too conservative to be useful in practice.
-The `Random forest` and `Naive Bayes` were the only models that moved
-more clearly beyond trivial majority class prediction. The
-`Random forest` performed best for delayed-flight detection on the main
-test split, reaching an accuracy of 0.7975, a delayed-class recall of
-0.0606, a precision of 0.3458 and an F1-score of 0.1032. This is still
-weak, but it shows that the pre-departure variables do contain at least
-some predictive signal. The random forest variable-importance results
-also fit the earlier exploratory findings: scheduled departure hour,
-distance, and scheduled elapsed time were the most influential
-predictors, while month, weekday and carrier contributed much less.
-`Naive Bayes` was more conservative: it achieved an accuracy of 0.8075,
-a delayed-class recall of 0.0058, a precision of 0.4226, and an F1-score
-of 0.0115. This means that `Naive Bayes` produced fewer false alarms,
-but also missed substantially more actual delays.
+The supervised modelling results confirmed this. The plain, boosted, and
+cost-sensitive C5.0 trees all defaulted to majority-class prediction and
+therefore failed to identify delayed flights in a useful way. The
+hard-vote ensemble moved only marginally beyond this trivial behaviour.
+The Random Forest and Naive Bayes were the only models that captured a
+clearer non-trivial signal. Of these, the Random Forest performed best
+for delayed-flight detection and remained the strongest model across
+repeated train-test splits, while Naive Bayes was weaker as a classifier
+but still showed some value as a ranking model. The ROC and AUC results
+support this interpretation: both non-trivial models performed clearly
+above chance in ranking flights by delay risk, even though their
+classification performance at the default threshold remained weak.
 
-The repeated-split evaluation strengthens rather than changes this
-conclusion. Across repeated train-test splits, the `C5.0 tree` and
-`cost-sensitive C5.0` kept reproducing the same trivial majority class
-result. The `hard-vote ensemble` moved only marginally beyond this, with
-an average delayed-class recall of about 0.0023. `Naive Bayes` performed
-somewhat better, with average performance across repeated splits of
-approximately 0.8071 for accuracy, 0.0077 for delayed-class recall,
-0.3947 for precision and 0.0152 for F1. The `Random forest` again
-remained the strongest model, with average performance of approximately
-0.7994 for accuracy, 0.0473 for delayed-class recall, 0.3396 for
-precision and 0.0830 for F1. So the Random forest is consistently better
-than the simpler models, but its performance is still too limited for
-strong operational use.
+The threshold analysis adds an important nuance. At the default
+classification threshold, the models appeared to perform very poorly on
+the delayed class. However, lowering the threshold showed that the
+models can recover a much larger share of delayed flights, although only
+at the cost of a substantial number of false positives. This means that
+the key trade-off is not simply whether delays can be predicted at all,
+but whether the balance between missed delays and false alarms is
+acceptable for the intended operational use.
 
-The ROC and AUC results add an important nuance. The `C5.0 tree` had an
-AUC of 0.500, which is exactly chance level. The `Random forest` reached
-an AUC of 0.623, while `Naive Bayes` performed slightly better at 0.626.
-This shows that both non-trivial models contain some useful ranking
-signal, even though their classification performance at the chosen
-threshold remained weak. So while the `Random forest` remains the
-strongest classifier for delayed-flight detection, `Naive Bayes`
-performs at least as well (and here slightly better) as a
-threshold-independent ranking model.
+Taken together, these results suggest that the main limitation of the
+current approach lies less in the modelling methods themselves than in
+the available feature set. The models do capture some broad structural
+patterns in delay risk, but many of the most important drivers of delays
+are not observed in the current data. As a result, the models are not
+strong enough to support full automation of pre-departure intervention
+decisions.
 
-This leads to an important business conclusion. The current models are
-not strong enough to support full automation of pre-departure
-intervention decisions. In particular, the recall for delayed flights is
-too low, which means that too many real delays would still be missed. So
-the main value of this analysis is not that it produced a
-deployment-ready prediction system, but that it clarified where useful
-signal exists, where it remains too weak, and which variables matter
-most. In that sense, the project succeeds analytically even though the
-predictive performance remains limited.
+The most realistic recommendation is therefore not to use the tested
+models as stand-alone decision systems, but rather as weak
+prioritisation tools. In practice, the stronger models could support an
+operations watchlist for additional human review, instead of
+automatically triggering costly interventions. Future improvement is
+likely to depend less on trying more algorithms and more on enriching
+the data with variables such as inbound aircraft delay, aircraft
+rotation information, weather conditions, airport congestion, and other
+operational disruption indicators. In that sense, the project does not
+produce a deployment-ready prediction system, but it does provide a
+clear analytical answer: there is some useful signal in pre-departure
+data, but not enough for strong standalone prediction.
 
 ### Practical recommendations
 
 Based on the current results, we would not recommend using the tested
 models as a stand-alone system to automatically decide which flights
-should trigger strong operational intervention. The delayed-class recall
-is too low for that purpose.
+should trigger strong operational intervention. At the default
+threshold, the models are unsuitable. At the operationally tuned
+threshold of 0.20, the soft-vote ensemble recovers 61% of delays with
+27% precision, which makes it viable to use as a watchlist tool for
+pre-departure review.
 
-A more realistic recommendation is to use the current modelling output
-as a weak prioritization or ranking signal rather than as a hard
-decision rule. In practice, this could mean using the stronger
-non-trivial models, such as the `Random forest` for delayed-flight
-detection and possibly `Naive Bayes` for broader ranking support, to
-place flights on an operations watchlist for additional human review,
-rather than automatically triggering expensive interventions. In
-practice, this means the airline could use the model to support
-light-touch pre-departure monitoring. Flights flagged as relatively
-higher risk could be sent to an operations watchlist for additional
-human review, rather than automatically triggering expensive
+A more realistic recommendation is to use the model output as a
+prioritization or watchlist tool rather than as a hard decision rule. In
+practice, this means that flights flagged as relatively higher risk
+could be sent to operations staff for closer monitoring or additional
+review before departure, instead of automatically triggering costly
 interventions such as extra crew allocation or major gate changes. This
 is a more defensible use case because it treats the model as an input
-into decision-making, not as a replacement for operational judgment.
+into decision-making, rather than as a replacement for operational
+judgment. The threshold analysis also shows that this type of use
+becomes more plausible when the cut-off is adjusted to match the
+operational preference between catching more true delays and accepting
+more false alarms.
 
 A second recommendation is to improve the data before trying to improve
 the models further. The current feature set is limited to structured
@@ -3698,7 +3874,7 @@ a decision tree, a neural network does not produce readable rules, which
 makes it harder to explain flagged flights to operations staff.
 
 **Text analytics** Maintenance logs, dispatcher notes and weather
-conditions issued before departure could contain useful early warning
+bulletins issued before departure could contain useful early warning
 signals that do not appear in any structured schedule variable. For
 example, a note about a known technical issue with an inbound aircraft
 could be a strong predictor of delay. NLP methods such as term frequency
@@ -3745,20 +3921,16 @@ More specifically, the most valuable follow-up would be to:
 -   continue using stronger validation designs, so that evaluation is
     seen as a distribution rather than as one fixed number
 
--   reconsider the ensembling strategy, knowing that soft voting will
-    not fix the current ensemble, since C5.0 will output the constant
-    base rate of 19% delay for every flight and drag down other useful
-    probabilities from the random forest.
-
 -   only consider substantially more advanced methods once the data
     richness, and decision framing, justify them
 
 So the final conclusion is not that the problem is unsolvable, but that
 the current structured pre-departure variables are not sufficient for a
-strong operational classifier on their own. Implementing a model with
-current performance would force the airline to face the trade-off of
-missing too much delays (causing resource shortage and delay cascade) or
-generate excess false alarms (causing alarm fatigue and ignore delays).
+strong operational classifier on their own. At the recommended threshold
+of 0.20, the tuned model recovers about 61% of the real delays while
+flagging roughly 40% of flights. Whether this trade-off is operationally
+acceptable depends on the relative cost of a missed delay versus a false
+alarm.
 
 The project still succeeds analytically because it identifies the main
 sources of signal, shows clearly why some modelling approaches fail, and
